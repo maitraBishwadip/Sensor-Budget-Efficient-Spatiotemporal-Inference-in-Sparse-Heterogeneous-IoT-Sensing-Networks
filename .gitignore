@@ -53,4 +53,6 @@ reports/diagnostic_report_v2.md
 # OS
 Thumbs.db
 
-.claude/*
+# Claude Code local state
+.claude/
+CLAUDE.md
