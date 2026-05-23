@@ -1,0 +1,15 @@
+# PM2.5 Graph-TL project -- CPU-only dependency list.
+# Tested with Python 3.10+. Install with:
+#     pip install -r requirements.txt
+#
+# Notes:
+#  - PyTorch is installed in CPU-only mode (no CUDA wheel).
+#  - PyTorch Geometric is NOT required by this codebase; the GAT and SAGE
+#    layers are implemented from scratch in src/models/stgnn_gat.py and
+#    src/models/stgnn_sage.py so the project runs on a laptop CPU without
+#    pulling in PyG's compiled extensions.
+
+numpy>=1.24,<2.2
+pandas>=2.0,<2.3
+scikit-learn>=1.3,<1.6
+torch>=2.1,<2.5

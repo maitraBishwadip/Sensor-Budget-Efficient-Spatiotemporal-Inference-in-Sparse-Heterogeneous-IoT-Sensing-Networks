@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Datasets (CPCB data is NOT redistributed under repo license)
+dataset/Delhi*/
+dataset/Kolkata*.csv
+dataset/Guwahati*.csv
+dataset/processed/
+dataset/*.json
+
+# Trained model checkpoints
+models/*.pt
+models/*.pth
+
+# Logs and run artifacts
+*.log
+reports/logs_*.txt
+runs/
+wandb/
+
+# Result JSONs (regenerable by re-running training)
+results/lstm/*.json
+results/gnn/*.json
+results/gnn_tl/*.json
+
+# Auto-generated diagnostic reports (regenerable by analysis/*.py)
+reports/diagnostic_report.md
+reports/diagnostic_report_v2.md
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+Thumbs.db
