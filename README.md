@@ -1,4 +1,4 @@
-# GNN-TL — Graph Transfer Learning for PM2.5 Forecasting across Indian Cities
+# GNN-TL — Graph Neural Network Transfer Learning for PM2.5 Forecasting across Indian Cities
 
 Cross-city PM2.5 forecasting under heterogeneous station topologies (Delhi 40 / Kolkata 10 / Guwahati 4) via an inductive Spatio-Temporal GNN (GAT + dilated TCN) with adversarial graph-level domain adaptation (Graph-DANN). Extends the LSTM-TL B.Tech thesis (Sanjeev, Prakash & Maitra, 2025) to the graph setting.
 
