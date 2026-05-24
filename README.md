@@ -2,7 +2,7 @@
 
 Cross-city PM2.5 forecasting under heterogeneous station topologies (Delhi 40 / Kolkata 10 / Guwahati 4) via an inductive Spatio-Temporal GNN (GAT + dilated TCN) with adversarial graph-level domain adaptation (Graph-DANN). Extends the LSTM-TL B.Tech thesis (Sanjeev, Prakash & Maitra, 2025) to the graph setting.
 
-> Detailed numerical results live in [reports/RESULTS.md](reports/RESULTS.md); the full technical narrative is in [reports/MAIN_REPORT.md](reports/MAIN_REPORT.md); the consolidated research proposal is in [reports/ResearchProposal.md](reports/ResearchProposal.md); the bibliography is in [reports/REFERENCES.md](reports/REFERENCES.md).
+> Detailed numerical results live in [reports/RESULTS.md](reports/RESULTS.md); the full technical narrative is in [reports/MAIN_REPORT.md](reports/MAIN_REPORT.md); the consolidated research proposal is in [reports/ResearchProposal.md](reports/ResearchProposal.md); the bibliography is in [reports/REFERENCES.md](reports/REFERENCES.md); the architectural deep-dive of the GNN / GNN-TL implementation is in [reports/ARCHITECTURE.md](reports/ARCHITECTURE.md).
 
 ---
 
@@ -34,7 +34,7 @@ GNN_TL/
 ├── models/                       saved checkpoints (.pt)
 ├── results/                      result JSONs (lstm/, gnn/, gnn_tl/)
 ├── analysis/                     diagnostic + comparison scripts
-├── reports/                      written reports (MAIN_REPORT, RESULTS, REFERENCES, ResearchProposal)
+├── reports/                      written reports (MAIN_REPORT, RESULTS, REFERENCES, ResearchProposal, ARCHITECTURE)
 └── requirements.txt
 ```
 
@@ -76,5 +76,4 @@ Raw CPCB station data is **not redistributed** here — it is governed by CPCB's
 ## License
 
 MIT for code. Raw CPCB data falls under CPCB's terms.
-
 
