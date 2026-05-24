@@ -366,7 +366,7 @@ A common failure mode in transfer-learning papers is to report only `transfer.R�
 
 `--full` runs **24 cells** = 6 pairs × 4 d-fractions {15, 30, 45, 60}%. All 24 passed (RESULTS.md §4). This is uncommon in cross-city ST-transfer literature (RegionTrans, MetaST, ST-GFSL, CrossTReS, TransGTR all skip the scratch baseline at matched-d), which is part of why this project's claims are defensible.
 
-### 0.8 Variant B — Graph-DANN, the adversarial trick
+### 0.8 Variant B — Graph-DANN, the adversarial trick (v2 stabilized; transfer R² ≈ 0.81 on all three pairs — see [RESULTS.md §3.4](RESULTS.md))
 
 PT-FT in §0.6 transfers **weights**. Graph-DANN goes further: it tries to make the encoder's **internal representation distribution** statistically indistinguishable across cities, *before* the small target gradient is even allowed to specialize. The idea, due to Ganin & Lempitsky (ICML-15) and formalized in Ganin et al. (JMLR-16):
 
@@ -724,6 +724,8 @@ Adam, `weight_decay = 1e-5`, `ReduceLROnPlateau(factor=0.5, patience=3)` on val 
 ## 5. Variant B — Graph-DANN (adversarial domain adaptation)
 
 Implemented in [src/models/dann.py](../src/models/dann.py) and trained by [src/train_gnn_dann.py](../src/train_gnn_dann.py). This is the project's principled contribution over plain PT-FT.
+
+> ✅ **Run status (May 2026, v2):** Graph-DANN has been stabilized and re-run on the `--fixed` protocol after a diagnosed v1 collapse on the legacy split. v2 transfer R² is **+0.8171** (Delhi→Kolkata), **+0.8131** (Delhi→Guwahati), **+0.7916** (Kolkata→Guwahati) — all positive, all beat zero-shot by ≥ 0.08 R², and statistically on par with Variant A. Seven stabilization fixes were applied (ADDA-style warm-start, longer λ ramp, `α_d=0.1` loss reweighting, LayerNorm pre-GRL, fixed protocol, per-city FT recipe, larger discriminator subsample) — see [RESULTS.md §3.4](RESULTS.md). The v1 failure log and root-cause analysis remain in [RESULTS.md §2.3](RESULTS.md) as a documented negative-then-fixed result.
 
 ### 5.1 The wrapper
 

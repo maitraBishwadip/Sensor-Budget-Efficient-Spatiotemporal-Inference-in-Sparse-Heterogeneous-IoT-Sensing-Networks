@@ -61,6 +61,14 @@ class GraphDANN(nn.Module):
     The encoder must accept (x, edge_index, edge_weight, return_embedding=True)
     and return a (forecast, embedding) tuple — both STGNN_GAT and STGNN_SAGE
     satisfy this contract.
+
+    A LayerNorm is applied to the graph-pooled embedding before the GRL.
+    The raw mean+max pool scale depends on |V| (Delhi's 40-node max-pool sits
+    on a different magnitude than Guwahati's 4-node max-pool), which trivializes
+    the city discriminator and produces destructively large reversed gradients
+    back into the encoder. Normalizing per-feature decouples the discriminator's
+    job from |V| and tracks the modern reimplementation practice (e.g.
+    GraphNorm, Cai et al. ICML-21).
     """
 
     def __init__(
@@ -73,6 +81,7 @@ class GraphDANN(nn.Module):
         self.encoder = encoder
         if not hasattr(encoder, "embedding_dim"):
             raise ValueError("encoder must expose an 'embedding_dim' attribute")
+        self.embed_norm = nn.LayerNorm(encoder.embedding_dim)
         self.discriminator = CityDiscriminator(
             in_dim=encoder.embedding_dim,
             hidden_dim=discriminator_hidden,
@@ -87,6 +96,7 @@ class GraphDANN(nn.Module):
         lambda_: float = 0.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         y, z = self.encoder(x, edge_index, edge_weight, return_embedding=True)
+        z = self.embed_norm(z)
         z_rev = grad_reverse(z, lambda_)
         city_logits = self.discriminator(z_rev)
         return y, city_logits
