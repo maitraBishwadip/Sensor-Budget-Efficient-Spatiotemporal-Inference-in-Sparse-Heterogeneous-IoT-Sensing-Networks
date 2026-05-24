@@ -22,117 +22,484 @@ This is the implementation-and-mechanism counterpart to [MAIN_REPORT.md](MAIN_RE
 
 ## 0. Plain-language walkthrough — how does this actually work?
 
-Before the technical sections, here is the whole pipeline in plain English. The single most important question — **"how do you transfer a GNN from a 40-station city to a 4-station city when the graphs are completely different?"** — is answered in §0.3 and §0.4.
+This section walks through the **specific problem this project tackles** — forecasting 3-hour-ahead PM2.5 across three Indian cities — and explains the GNN and the transfer mechanism from first principles. The single most important question — **"how do you transfer a GNN from a 40-station megacity (Delhi) to a 4-station Northeast hill city (Guwahati) when the graphs are completely different?"** — is answered in detail in §0.4 and §0.7.
 
-### 0.1 What the GNN does, in one paragraph
+### 0.1 The problem, in concrete terms
 
-Each city is a set of monitoring stations sitting at fixed coordinates. We connect each station to its 3 nearest neighbours with edges weighted by how close they are (closer = stronger edge). That gives us a **graph**: nodes = stations, edges = "this station is geographically near that one." At every 3-hour time step each station reports a bunch of measurements (PM2.5, wind, temperature, etc.). The GNN's job is: **given the last 24 hours of readings at every station, predict the next 3-hour PM2.5 at every station**.
+India has about **350 CPCB Continuous Ambient Air Quality Monitoring (CAAQM) stations** spread very unevenly: Delhi has 40 in one ~50 km × 50 km basin, Kolkata has 10 across a coastal-plain delta, and Guwahati in Assam has only 4 in a Brahmaputra-valley pocket surrounded by hills. WHO's 5 µg/m³ annual PM2.5 guideline (WHO, 2021) is exceeded by a factor of 10–25× in all three (IQAir, 2024). The B.Tech-thesis foundation of this project (Sanjeev, Prakash & Maitra, 2025) showed that **LSTM-TL** transfers reasonably well between similar-sized cities but degrades sharply when the target has very few stations — the **Guwahati problem**.
 
-How does it do that? Two ingredients, alternated:
-- **Temporal block (TCN)** — for each station individually, look at its past 24 hours and squeeze the time pattern into a feature vector. This is just a 1-D convolution along time.
-- **Spatial block (GAT)** — for each station, look at its neighbours in the graph and mix their feature vectors in. "Mix" is weighted by an attention score the model learns: a neighbour that is upwind during a smog event gets more weight than one downwind.
+The exact forecasting task is:
 
-After alternating these blocks twice (TCN → GAT → GAT → TCN), the model takes the last time-step's per-station feature vector and runs a tiny linear head on it to spit out one number per station — the predicted PM2.5.
+```
+Given:    history window  H = 8 time steps  =  24 hours  (3-hour cadence, CPCB native)
+          N_c stations    (40 Delhi  /  10 Kolkata  /  4 Guwahati)
+          F = 14 features per (station, timestep)
+          → PM2.5, AT (ambient temperature), RH (relative humidity), WS (wind speed),
+             sin/cos wind direction, sin/cos hour-of-day, sin/cos month-of-year,
+             one-hot season {Winter, Spring, Summer, Monsoon}
+Predict:  PM2.5 at every station,  3 hours ahead          (horizon = 1 step)
+```
 
-### 0.2 Step by step inside one forward pass
+So one training example is a tensor `[H=8, N_c, F=14]` and one label is a vector `[N_c]`.
 
-For a single training example (24 h history × `N` stations × `F` features):
+Two structural difficulties make this harder than a standard time-series forecast:
 
-1. **TCN-1** — slides a small temporal filter over every station's past 24 hours, producing a fresh 64-dim feature per (station, time step).
-2. **GAT-1** — for every time step, every station computes an attention score with each of its 3 neighbours, softmax-normalizes those scores, and replaces its own vector with a weighted sum of neighbour vectors. The edge weights from the k-NN distance kernel are folded in additively (closer neighbours get extra attention "for free").
-3. **GAT-2** — same again. After two GAT hops, each station's vector has been influenced by neighbours-of-neighbours (≈ 6-station receptive field).
-4. **TCN-2** — slides another temporal filter (now with dilation = 2 so it sees a wider time window).
-5. **LayerNorm + head** — grab the feature vector at the *last* time step, run a linear `64 → 1`. One PM2.5 number per station. Done.
+1. **Topological heterogeneity.** Delhi's 40-station graph and Guwahati's 4-station graph cannot share an architecture that has a `|V|`-shaped parameter anywhere. This is failure mode F-i in the thesis post-mortem.
+2. **Cross-city distribution shift.** Delhi has annual-mean PM2.5 ≈ 100 µg/m³ dominated by winter biomass + vehicular smog (CSE, 2024); Kolkata is a humid delta with eastern-IGP transport patterns; Guwahati has lower absolute concentrations but a steep monsoon-cycle. Naïve transfer fails because the **target distribution doesn't look like the source**.
 
-Loss: mean squared error between the predicted PM2.5 and the truth, averaged over all stations and all training windows.
+This project's design addresses (1) with an **inductive ST-GNN** (Hamilton et al., NeurIPS-17; Veličković et al., ICLR-18) and (2) with two complementary transfer strategies: pre-train + fine-tune (Yadav et al., 2024; Hu et al., ICLR-20) and adversarial graph-level domain adaptation (Ganin & Lempitsky, ICML-15; Tang et al., CIKM-22).
 
-### 0.3 The transfer-learning question, made concrete
+### 0.2 The three city graphs, side by side
 
-You train this GNN on **Delhi (40 stations, 120 edges)**. The model has weights `W₁, W₂, …` for the TCN kernels, the GAT projections, and the head — about **25,000 parameters total**. Now you want to use that knowledge for **Guwahati (4 stations, 12 edges)**.
+Edges are 3-nearest-neighbour, weighted by `exp(−d²/(2σ²))` with `σ = 5 km`. Visually:
 
-The obvious worry: "Delhi's graph has 40 nodes, Guwahati's has 4. The trained model is shaped for Delhi. How can the same weights possibly run on Guwahati?"
+```
+ ┌────────────────────── DELHI (source candidate) ──────────────────────────┐
+ │                                                                          │
+ │    N = 40 stations    E = 120 directed edges    avg degree = 3.00        │
+ │    Spread:  ~50 km E-W × ~40 km N-S  across the NCT                      │
+ │    Year of record:    Jan 2021 – Dec 2022                                │
+ │    Climate regime:    Indo-Gangetic Plain, winter inversion-driven       │
+ │                                                                          │
+ │           Bawana ●─────● Alipur ───● Burari Cr.───● Sonia Vihar          │
+ │              │  ╲    ╱  │           │              │                     │
+ │           DTU ●─────● Ashok Vihar ● Jahangirpuri ● Vivek Vihar           │
+ │              │       │            │              │                      │
+ │            ...37 more stations connecting across the metro...           │
+ │                                                                          │
+ └──────────────────────────────────────────────────────────────────────────┘
 
-**Answer: they can, because not a single weight in this model has a size that depends on the number of stations.** Look at what the model actually stores:
-- TCN kernel — a 3-wide filter over the time axis. **Time is the same for both cities.**
-- GAT weight matrix `W` — projects a 64-dim node vector to a 64-dim node vector. **Same shape for any node.**
-- GAT attention vectors `a_src, a_dst` — 64-dim each. **Same.**
-- Linear head — `64 → 1`. **Same.**
+ ┌─────────────────────── KOLKATA  ───────────────────────┐
+ │                                                        │
+ │   N = 10    E = 30   avg degree = 3.00                 │
+ │   Coastal Gangetic delta; Bay of Bengal influence      │
+ │   Year of record: 2023                                 │
+ │                                                        │
+ │   Ballygunge ●───● Fort William ───● Victoria          │
+ │        │     ╲ ╱       │                               │
+ │   Bidhannagar ●────● Rabindra Bharati ● Jadavpur       │
+ │        │           │              │                    │
+ │     ... 4 more ...                                     │
+ │                                                        │
+ └────────────────────────────────────────────────────────┘
 
-Nowhere is there a `40 × 40` adjacency matrix being learned, or a per-station embedding table. The model is **inductive**: it operates on *one node at a time*, talking to *whoever happens to be its neighbour in the graph you hand it*. The graph is an **input**, not a parameter.
+ ┌───────── GUWAHATI  (the hardest target) ────────┐
+ │                                                  │
+ │   N = 4    E = 12   avg degree = 3.00            │
+ │   Brahmaputra valley; hill-surrounded basin      │
+ │   Year of record: 2023                           │
+ │                                                  │
+ │   LGB Airport ●──────● Pan Bazaar                │
+ │         │   ╲    ╱      │                        │
+ │   Railway Col. ●──────● IIT Guwahati             │
+ │                                                  │
+ │   (k=3 on |V|=4 is essentially a complete digraph)│
+ │                                                  │
+ └──────────────────────────────────────────────────┘
+```
 
-So the same model file:
-- on Delhi, runs forward and produces 40 numbers (one per Delhi station);
-- on Guwahati, runs forward on the Guwahati graph and produces 4 numbers (one per Guwahati station).
+The whole point of the project is that **the same model architecture and weights operate on all three of these graphs without modification.**
 
-**No shape change, no surgery, no re-initialization.** This is the whole point of using GAT/GraphSAGE and not, say, a fixed-adjacency Chebyshev GCN. (Spelled out in detail in §2.1 and §2.5.)
+### 0.3 The GNN, step by step on a Delhi example
 
-### 0.4 Variant A — Pre-train + Fine-tune, step by step
+Each forward pass takes one window `X ∈ ℝ^{H × N × F}` and produces `ŷ ∈ ℝ^N`. The model alternates **temporal** and **spatial** processing — a pattern shared by STGCN (Yu, Yin & Zhu, IJCAI-18), Graph WaveNet (Wu et al., IJCAI-19), and MTGNN (Wu et al., KDD-20).
 
-This is the simpler of the two transfer strategies. Imagine you want **Delhi → Guwahati** transfer.
+```
+                  ONE TRAINING EXAMPLE — DELHI WINDOW
+                  ───────────────────────────────────
 
-1. **Train on Delhi.** Run the GNN on the full Delhi dataset for 25 epochs. Save the checkpoint to `models/gnn/gat_source_Delhi_fixed.pt`. This is the "source model" — its weights have learned what PM2.5 dynamics look like in a North Indian winter.
-2. **Build the Guwahati graph.** Compute haversine distances between Guwahati's 4 stations, build the k-NN edges, get `edge_index` and `edge_weight` for Guwahati. **This is a different graph from Delhi's** — but that's fine, the model accepts any graph as input.
-3. **Take a small slice of Guwahati training data.** Pick `d% = 30%` of Guwahati's training windows.
-4. **Load the Delhi-trained weights into a fresh model instance.** Because nothing is shaped for 40 stations, the load just works. Now you have a model that has Delhi-style understanding of PM2.5 but is about to look at Guwahati's graph.
-5. **Freeze the first temporal block for the first 20% of epochs.** This protects the low-level feature extractor from being trampled by the small Guwahati gradient. After 20%, unfreeze.
-6. **Fine-tune.** Run gradient descent on the Guwahati 30% subsample for 40 epochs (Adam, LR = 1e-4, early stopping on val R²). The forward pass uses the **Guwahati graph**; the loss uses **Guwahati PM2.5 truth**. The weights drift from "Delhi-shaped" to "Delhi-pretrained-then-Guwahati-specialized".
-7. **Evaluate on Guwahati's held-out test partition.** Done.
+   X[t, n, f]        ← shape [8, 40, 14]
+       │              "the last 24 h at all 40 Delhi stations"
+       │
+       ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │  STEP 1 — TemporalConv₁  (kernel=3, dilation=1, F → 64)     │
+ │                                                             │
+ │   For each station n independently, slide a 3-wide          │
+ │   filter along the 8-step time axis. After this every       │
+ │   (n, t) cell holds a 64-dim summary of "what just          │
+ │   happened at this station over the last few hours".        │
+ │                                                             │
+ │   Shape after:  [8, 40, 64]                                 │
+ └─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │  STEP 2 — Vectorize spatial pass                            │
+ │                                                             │
+ │   Flatten (batch, time) → one batch dim, so we have         │
+ │   8 graph instances stacked together: [8·B, 40, 64].        │
+ │   The GAT layer runs once over all of them in parallel.     │
+ └─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │  STEP 3 — GATLayer₁  →  ELU                                 │
+ │                                                             │
+ │   For every Delhi station n, look at its 3 nearest          │
+ │   neighbours (e.g. ITO's neighbours = CRRI, JLN, NSUT)      │
+ │   and form a weighted mix of their feature vectors.         │
+ │                                                             │
+ │       e_{ij} = LeakyReLU(〈Wxᵢ, a_src〉 + 〈Wx_j, a_dst〉)   │
+ │                  + log(w_{ij})                              │
+ │                                                             │
+ │       α_{ij} = softmax over neighbours-of-j (e_{ij})        │
+ │       h_j    = Σᵢ α_{ij} · Wxᵢ                              │
+ │                                                             │
+ │   The Gaussian k-NN edge weight enters log-additively       │
+ │   into the unnormalized attention, so geographically        │
+ │   closer neighbours get a head start in the softmax         │
+ │   but the model can still down-weight them if needed        │
+ │   (e.g. when ITO and CRRI sit on opposite sides of a        │
+ │   pollution plume edge).                                    │
+ │                                                             │
+ │   This is the GAT formulation of Veličković et al. (2018),  │
+ │   single-head, with explicit edge-weight injection — the    │
+ │   same spirit as PM2.5-GNN's wind-aware weights             │
+ │   (Wang et al., SIGSPATIAL-20).                             │
+ └─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │  STEP 4 — GATLayer₂  →  ELU                                 │
+ │                                                             │
+ │   Second hop. Now ITO's vector has been influenced by       │
+ │   its neighbours' neighbours — effectively a 6-station      │
+ │   receptive field, enough to span ~10–15 km in Delhi.       │
+ └─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │  STEP 5 — Reshape back to [B, 8, 40, 64]                    │
+ │           TemporalConv₂  (kernel=3, dilation=2, 64 → 64)    │
+ │                                                             │
+ │   Second temporal pass with dilation 2 → receptive field    │
+ │   of 7 of the 8 time steps. The model can now correlate     │
+ │   "early-morning rising trend" with "current concentration  │
+ │   at neighbours" — a TCN-style dilated stack                │
+ │   (Bai, Kolter & Koltun, 2018).                             │
+ └─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │  STEP 6 — LayerNorm  →  take last time step  →  Linear head │
+ │                                                             │
+ │   We only care about the prediction t+1, so we grab the     │
+ │   feature at t = 8 (the last step). One 64 → 1 linear       │
+ │   head maps it to a single scalar per station.              │
+ │                                                             │
+ │   Output:   ŷ ∈ ℝ^{40}   →  one PM2.5 forecast per station  │
+ └─────────────────────────────────────────────────────────────┘
 
-To check whether the Delhi pre-training *actually helped*, every fine-tune cell is run **three times** on the same data slice:
-- **Zero-shot** — Delhi weights, no fine-tuning. Just evaluate on Guwahati. Did Delhi knowledge transfer at all?
-- **Scratch** — random init, fine-tune on Guwahati 30%. What does Guwahati 30% alone teach the model?
-- **Transfer** — Delhi weights, fine-tune on Guwahati 30%. The actual TL result.
+   Loss = MSE(ŷ, y_true_PM25)   (in z-scored residual space, see §6)
+```
 
-If `transfer > scratch` and `transfer > zero_shot`, the source pre-training is genuinely helping; if not, it is irrelevant or hurting. All 24 cells in this project passed this test.
+Total parameters in `--fixed` mode: ≈ 25,000 — most of which sits in TCN-2 (12k) and the two GAT projections (8k combined). **Crucially, look at where those parameters live in shape-space:**
 
-### 0.5 Variant B — Graph-DANN, the adversarial trick, step by step
-
-PT-FT transfers **weights**. Graph-DANN goes further: it tries to make the *encoder's internal representation* statistically indistinguishable across cities, *before* the small target gradient is even allowed to specialize. The idea (Ganin & Lempitsky, 2015) is:
-
-> "If a separate classifier cannot tell which city an embedding came from, then the embedding must be city-invariant — and a city-invariant embedding is by definition transferable."
-
-Mechanism:
-
-1. **Wrap the GNN encoder.** Same GNN as before, but now after the last spatial block we also do a **graph-level pooling**: compute the mean and max of node features over all `N` stations, concatenate. **This pooling is the magic — it produces a fixed-size vector (128-dim) regardless of `N`**, so Delhi (40 nodes), Kolkata (10), and Guwahati (4) all produce comparable city-level descriptors.
-2. **Attach a city classifier.** A small MLP `128 → 64 → 64 → 3` that tries to predict "which of the 3 cities did this pooled embedding come from?"
-3. **Insert a Gradient Reversal Layer (GRL) between the encoder and the classifier.** On the forward pass, the GRL does nothing. On the backward pass, it **multiplies gradients by `−λ`**. So the city classifier still learns normally, but the gradients it sends back to the encoder are **flipped in sign**.
-4. **Joint training loop.** For each step:
-   a. Sample a mini-batch from the **source city (Delhi)**. Run the encoder on Delhi's graph. Compute the forecast loss (Delhi PM2.5 is labelled) AND the city loss (label = "Delhi").
-   b. Sample a mini-batch from the **target city (Guwahati)**. Run the encoder on Guwahati's graph. **Do not use Guwahati PM2.5 labels.** Only compute the city loss (label = "Guwahati").
-   c. Sample a mini-batch from the **third city (Kolkata)**. Run on Kolkata's graph. City loss only (label = "Kolkata"). The third city stabilizes training.
-   d. Sum everything: `L = MSE(forecast) + CE(city) + CE(city) + CE(city)`. Backprop.
-
-   Because of the GRL, the encoder gets two kinds of gradient updates:
-   - From the forecast loss: "make Delhi's PM2.5 predictions accurate."
-   - From the city loss (reversed): "make the pooled embedding *less* distinguishable across cities."
-
-   The encoder is being pulled toward representations that are good for forecasting **AND** indistinguishable across cities. Whichever subset of features survives both pressures is, by construction, transferable.
-5. **λ warm-up.** `λ` starts near 0 and ramps to 1 smoothly over training (`λ(p) = 2/(1+exp(−10·p)) − 1`). Early in training the encoder is allowed to focus on forecasting; the adversarial pressure kicks in later, once a useful representation already exists.
-6. **Phase 2 — target fine-tune.** After joint training, **turn off the adversary** (`λ = 0`) and fine-tune on `d%` of the target's PM2.5 labels, exactly like Variant A's step 6.
-
-### 0.6 Why the same encoder can be re-used across three different graphs in one mini-batch (the crux)
-
-Inside one Graph-DANN training step the same encoder is called **three times** — once per city — each time with a **different `edge_index` and `edge_weight`** ([train_gnn_dann.py:81-87](../src/train_gnn_dann.py#L81-L87)). This works because:
-
-- The encoder takes `(x, edge_index, edge_weight)` as inputs. The graph is **passed in**, not built into the weights.
-- The attention computation inside GAT iterates over whatever edges you hand it — 120 for Delhi, 30 for Kolkata, 12 for Guwahati — using the same `W`, `a_src`, `a_dst` parameters each time.
-- The pooling at the end (mean + max over all nodes) flattens out the `N` dimension, so the city descriptor is always 128-dim no matter how many stations there were.
-
-That is the **whole** structural answer to "how do you transfer when the graph is different?" The model never has any weight that knows or cares how many stations there are. It only has weights for: *processing one time-series*, *transforming one node's vector*, and *deciding how much to attend to one neighbour*. Those operations are universal across cities; the graph is just the local wiring that tells the model who-talks-to-whom in this particular city.
-
-### 0.7 Tiny summary table
-
-| step | input | weights touched | output |
+| component | what it learns | shape | depends on `N`? |
 |---|---|---|---|
-| TCN-1 | `[B, H, N, F]` | 3-wide temporal kernels (per-node) | `[B, H, N, 64]` |
-| GAT-1 | `[B·H, N, 64]` + edges | `W`, `a_src`, `a_dst` (per-node, per-edge) | `[B·H, N, 64]` |
-| GAT-2 | `[B·H, N, 64]` + edges | same shape as above | `[B·H, N, 64]` |
-| TCN-2 | `[B, H, N, 64]` | 3-wide dilated kernels | `[B, H, N, 64]` |
-| Head | last-step `[B, N, 64]` | `64 → 1` linear | `[B, N]` PM2.5 forecast |
-| (DANN only) Pool | last-step `[B, N, 64]` | none — just mean & max | `[B, 128]` city embedding |
-| (DANN only) GRL + Disc | `[B, 128]` | `128 → 64 → 64 → 3` MLP | `[B, 3]` city logits |
+| TCN-1 kernel | how PM2.5 + met evolves over 24 h | `[F, 64, 3]` = `[14, 64, 3]` | **no** |
+| GAT `W` | how to project one node's vector | `[64, 64]` | **no** |
+| GAT `a_src, a_dst` | how to score one edge endpoint | `[64]` each | **no** |
+| TCN-2 kernel | dilated temporal mixing | `[64, 64, 3]` | **no** |
+| Head | per-station regression | `[64, 1]` | **no** |
 
-None of the weight shapes have `N` in them. **That is the entire reason transfer across heterogeneous city graphs is possible.**
+Nothing — **literally not one weight** — is a function of how many stations the city has. That is exactly why the same model file can be loaded onto Guwahati's 4-station graph and produce 4 valid forecasts.
+
+### 0.4 Why "the graph is an input, not a parameter" is the whole game
+
+This is the conceptual hinge of the entire project. The contrast that makes it concrete:
+
+```
+   ┌─────────────────────────────────────────────────────────────────┐
+   │   ❌  TRANSDUCTIVE GNN  (e.g. vanilla GCN with learned A)       │
+   ├─────────────────────────────────────────────────────────────────┤
+   │                                                                 │
+   │   weights = {  W₁, W₂, …, A_{40×40}  }                          │
+   │                              ▲                                  │
+   │                              └─ adjacency baked into params     │
+   │                                                                 │
+   │   Train on Delhi:    A is 40×40 → fits Delhi.                   │
+   │   Load on Guwahati:  Guwahati's A is 4×4 → SHAPE MISMATCH.      │
+   │   Outcome: cannot transfer without surgery.                     │
+   │                                                                 │
+   └─────────────────────────────────────────────────────────────────┘
+
+   ┌─────────────────────────────────────────────────────────────────┐
+   │   ✅  INDUCTIVE GNN  (GAT / GraphSAGE — this project)           │
+   ├─────────────────────────────────────────────────────────────────┤
+   │                                                                 │
+   │   weights = {  W₁, a_src, a_dst, W₂, …  }     — no |V| anywhere │
+   │   forward(x, edge_index, edge_weight)   ← graph is an INPUT     │
+   │                                                                 │
+   │   Train on Delhi:    pass Delhi's (ei_D, ew_D), 40 nodes works. │
+   │   Load on Guwahati:  pass Guwahati's (ei_G, ew_G), 4 nodes      │
+   │                      works just as well — same weights.         │
+   │   Outcome: drop-in transfer with no shape changes.              │
+   │                                                                 │
+   └─────────────────────────────────────────────────────────────────┘
+```
+
+The theoretical grounding for "the same trained operator generalizes across graphs of different sizes" is the **graphon-transferability** result of Ruiz, Chamon & Ribeiro (NeurIPS-20) and the **spectral transferability** results of Levie et al. (JMLR-21). In plain English: if two graphs are sampled from a sufficiently similar "graph distribution" (informally, similar spatial process), an inductive GNN trained on one converges to nearly the same behaviour on the other as the sizes grow.
+
+The relevance to **this project's three cities**: all three are city-scale k-NN graphs of CPCB monitoring stations in the Indo-Gangetic Plain or its Brahmaputra-valley extension. Same underlying generating process; different realizations. Exactly the regime where inductive transfer should work.
+
+### 0.5 What "training on Delhi" actually means — Stage 1 (source-only pre-train)
+
+Before any transfer, we train one GNN per source city. Concretely, for Delhi:
+
+```
+   1.  Load delhi_processed.csv          → tensor of shape [T, 40, 14]
+                                          T ≈ 17,500 timestamps × 2 years
+   2.  Build the Delhi k-NN graph        → (edge_index, edge_weight)
+                                          120 edges, weighted by Gaussian decay
+   3.  Make sliding windows              → X: [num_windows, 8, 40, 14]
+                                            Y: [num_windows, 40]
+   4.  Split (interleaved 70/15/15)      → spreads val/test across all seasons
+   5.  Subtract per-(month, hour) climatology fit on the train split only
+       ──── (Yadav et al., 2024 residual-target idea)
+   6.  Z-score features and target       → fit scaler on train only
+   7.  Train for 25 epochs, batch 128, LR 1e-3, Adam + ReduceLROnPlateau,
+       early stopping on val R²          → save models/gnn/gat_source_Delhi_fixed.pt
+   8.  Test → reported as "Delhi source-only" in RESULTS.md §3.1
+```
+
+This produces a model whose weights have absorbed:
+- the typical Delhi diurnal cycle (rush-hour peaks at 9 am / 7 pm IST),
+- the winter inversion regime (high stagnant PM2.5 episodes Nov–Feb),
+- the spatial correlation structure of the 40-station network (e.g. ITO and CRRI Mathura Road covary strongly because they are 4 km apart in the same wind corridor).
+
+The same procedure runs on Kolkata (2023, 10 stations) and Guwahati (2023, 4 stations), each producing its own source checkpoint. The three checkpoints are interchangeable — they all use **the same model class with the same shape**.
+
+### 0.6 Variant A — Pre-train + Fine-tune, with the **Delhi → Guwahati** case fully spelled out
+
+This is the simpler of the two transfer strategies. The seven-step recipe in [src/train_gnn_tl.py](../src/train_gnn_tl.py):
+
+```
+   ┌──────────────────────────────────────────────────────────────────┐
+   │   Variant A:  source = Delhi    target = Guwahati    d% = 30%    │
+   └──────────────────────────────────────────────────────────────────┘
+
+   ① Load the Delhi-pretrained checkpoint
+        models/gnn/gat_source_Delhi_fixed.pt
+        ↓
+        weights = {TCN-1, GAT-1, GAT-2, TCN-2, Head} — all shape-free in |V|
+        ↓
+        Instantiate a fresh STGNN_GAT(in_features=14, hidden_dim=64, gat_dim=64)
+        Load weights — no shape errors, because none of them care about |V|
+
+   ② Build the Guwahati graph
+        coords = [(26.10, 91.58), (26.14, 91.74), (26.19, 91.69), (26.20, 91.66)]
+        → haversine distances, k=3 → edge_index_G, edge_weight_G
+
+   ③ Take 30% of Guwahati's training windows
+        Guwahati train = ~1,800 windows of shape [8, 4, 14]
+        d=30% sub-sample → 540 windows
+
+   ④ Freeze TCN-1 for the first 20% of epochs (= 8 of 40 epochs)
+        Reason: protect the low-level temporal feature extractor from
+        being trampled by the small Guwahati gradient. The same logic
+        as Yadav et al. (2024), and standard ImageNet TL practice
+        (Yosinski et al., 2014).
+
+   ⑤ Fine-tune for 40 epochs at LR = 1e-4
+        For each batch:
+            xb has shape [32, 8, 4, 14]               ← Guwahati window
+            forward = model(xb, edge_index_G, edge_weight_G)
+                        ↑ feeds the GUWAHATI graph to the same weights
+            loss = MSE(forward, y_guwahati)
+            backward, Adam step (Adam with weight decay 1e-5)
+
+   ⑥ Early stop on Guwahati val R²
+        Save best-by-val checkpoint to
+        models/gnn_tl/gat_tl_Delhi_to_Guwahati_d30_fixed.pt
+
+   ⑦ Evaluate on Guwahati's held-out test partition (raw µg/m³ space)
+        Report R², MAE, RMSE, MAPE.
+```
+
+Visually, the difference from Stage 1 is just which graph is plugged in:
+
+```
+  Stage 1 (Delhi source-only)              Variant A fine-tune (Delhi → Guwahati)
+  ─────────────────────────────            ──────────────────────────────────────
+
+         Delhi window                              Guwahati window
+            [8,40,14]                                  [8,4,14]
+               │                                          │
+               ▼                                          ▼
+    ┌──────────────────────┐                  ┌──────────────────────┐
+    │   STGNN_GAT          │                  │   STGNN_GAT          │
+    │   ──────────────     │                  │   ──────────────     │
+    │   weights θ_random   │  ──── train ──►  │   weights θ_Delhi    │
+    │                      │                  │                      │
+    │   edges = ei_Delhi   │                  │   edges = ei_Guwa    │  ← only this changes
+    │   |E| = 120          │                  │   |E| = 12           │
+    │   |V| = 40           │                  │   |V| = 4            │
+    └──────────────────────┘                  └──────────────────────┘
+               │                                          │
+               ▼                                          ▼
+            ŷ ∈ ℝ⁴⁰                                    ŷ ∈ ℝ⁴
+            train on Delhi                            fine-tune on Guwahati 30%
+            → save θ_Delhi                            → measure test R² on Guwahati
+```
+
+### 0.7 The three-way verification — was the transfer real?
+
+A common failure mode in transfer-learning papers is to report only `transfer.R²` and claim success without checking against the trivial baseline of "just train from scratch on the target." This project runs **three trainings per cell** on identical data:
+
+```
+   ┌──────────────────────────────────────────────────────────────────────┐
+   │   For every (source, target, d%) cell:                               │
+   │                                                                      │
+   │   ┌──────────────┐    ┌──────────────┐    ┌────────────────────┐     │
+   │   │ ZERO-SHOT    │    │  SCRATCH     │    │  TRANSFER          │     │
+   │   │              │    │              │    │                    │     │
+   │   │ Delhi weights│    │ Random init  │    │ Delhi weights      │     │
+   │   │ no FT        │    │ FT on d%     │    │ FT on d%           │     │
+   │   │ → R²_zs      │    │ → R²_sc      │    │ → R²_tl            │     │
+   │   └──────────────┘    └──────────────┘    └────────────────────┘     │
+   │                                                                      │
+   │   "Real transfer" iff   R²_tl > R²_zs   AND   R²_tl > R²_sc          │
+   └──────────────────────────────────────────────────────────────────────┘
+```
+
+`--full` runs **24 cells** = 6 pairs × 4 d-fractions {15, 30, 45, 60}%. All 24 passed (RESULTS.md §4). This is uncommon in cross-city ST-transfer literature (RegionTrans, MetaST, ST-GFSL, CrossTReS, TransGTR all skip the scratch baseline at matched-d), which is part of why this project's claims are defensible.
+
+### 0.8 Variant B — Graph-DANN, the adversarial trick
+
+PT-FT in §0.6 transfers **weights**. Graph-DANN goes further: it tries to make the encoder's **internal representation distribution** statistically indistinguishable across cities, *before* the small target gradient is even allowed to specialize. The idea, due to Ganin & Lempitsky (ICML-15) and formalized in Ganin et al. (JMLR-16):
+
+> "If a separate classifier cannot tell which city an embedding came from, then the embedding must be city-invariant — and a city-invariant embedding is, by construction, transferable."
+
+The architecture wraps the STGNN_GAT encoder with two additions: a **graph-level pooling** to get a fixed-size city descriptor, and a **Gradient Reversal Layer (GRL)** feeding a city classifier.
+
+```
+                          GRAPH-DANN  (Variant B)
+                          ──────────────────────
+
+      Delhi window   Kolkata window   Guwahati window
+        [B,8,40,14]    [B,8,10,14]      [B,8,4,14]
+              │              │               │
+              │  same encoder weights θ      │
+              ▼              ▼               ▼
+       ┌──────────────────────────────────────────┐
+       │     STGNN_GAT encoder                    │
+       │     ────────────────                     │
+       │     called 3× per step, one per city,    │
+       │     each with that city's edge_index     │
+       └──────────────────────────────────────────┘
+              │              │               │
+              ▼              ▼               ▼
+          last-step      last-step       last-step
+          [B,40,64]      [B,10,64]       [B,4,64]
+              │              │               │
+              ▼              ▼               ▼
+       ┌──────────────────────────────────────────┐
+       │   mean ⊕ max pool over node dim          │
+       │                                          │
+       │   → all three produce  z ∈ ℝ^{B × 128}   │   ← size-invariant!
+       └──────────────────────────────────────────┘
+              │              │               │
+              │              │               │
+              ▼  (Delhi only)│               │
+       ┌─────────────┐       │               │
+       │ Forecast    │       │               │
+       │ head        │       │               │
+       │ ŷ ∈ ℝ^{B×N} │       │               │
+       └─────────────┘       │               │
+                             │               │
+              ┌──────────────┴───────────────┘
+              ▼
+       ┌──────────────────────────────────────────┐
+       │           GRL ( λ )                      │
+       │                                          │
+       │   forward:  identity                     │
+       │   backward: ∇ → −λ · ∇                   │   ← the adversarial sign flip
+       └──────────────────────────────────────────┘
+              │
+              ▼
+       ┌──────────────────────────────────────────┐
+       │   CityDiscriminator  128 → 64 → 64 → 3   │
+       │       (ReLU + Dropout 0.2)               │
+       │                                          │
+       │   trains to predict:  {Delhi, Kol, Guw}  │
+       └──────────────────────────────────────────┘
+
+      Total loss per step:
+         L = MSE(ŷ_Delhi, y_Delhi)              ← source-supervised
+            + CE(ĉ_Delhi, "Delhi")              ← city loss, source
+            + CE(ĉ_Guw,    "Guwahati")          ← city loss, target (no PM2.5 used!)
+            + CE(ĉ_Kol,    "Kolkata")           ← city loss, third-city replay
+```
+
+The mechanism in plain English:
+
+1. **The discriminator** sees a 128-dim graph descriptor and tries to predict the city. Its parameters get **normal positive** gradients — it learns to classify well.
+2. **The encoder** sees, through the GRL, **negated** versions of those gradients. So when the discriminator's gradient says "to be more Delhi-like, move this way", the encoder is told "move the *opposite* way". The encoder learns to produce embeddings that *fool* the discriminator.
+3. **At the same time**, the encoder receives a normal positive gradient from the **forecast head** (on Delhi-labelled batches), so it cannot just degenerate to a useless representation — it must still encode enough to predict PM2.5.
+
+The equilibrium of this saddle-point game is an encoder that produces **city-invariant features that are still predictive of PM2.5**. Exactly the representation we want for transfer.
+
+**λ warm-up** (Ganin et al., 2016): `λ(p) = 2/(1+exp(−10p)) − 1`, where `p ∈ [0,1]` is training progress. Starts at 0 (encoder focuses on forecasting), ramps to 1 (full adversarial pressure once the forecaster works). Without warm-up the adversary destabilizes the early encoder.
+
+**Three-city round-robin** (one of this project's specific design choices, [train_gnn_dann.py:166-220](../src/train_gnn_dann.py#L166-L220)): in each training step the encoder is called **three times** — once on a Delhi mini-batch (graph = `ei_Delhi`), once on a Kolkata mini-batch (graph = `ei_Kolkata`), once on a Guwahati mini-batch (graph = `ei_Guwahati`). All three feed the same city discriminator. The third (replay) city stabilizes adversarial training and prevents the encoder from learning a trivial source-vs-target binary boundary.
+
+**Phase 2 — target fine-tune.** After 8 epochs of joint training, the GRL is turned off (`λ = 0`) and the model fine-tunes for 6 epochs on `d%` of the target's PM2.5 labels — same recipe as Variant A's step ⑤–⑦.
+
+### 0.9 The single answer to "how do you transfer when the graphs are different?"
+
+Combining everything above:
+
+```
+   ┌──────────────────────────────────────────────────────────────────┐
+   │                                                                  │
+   │   The encoder weights θ never see |V|. They only see:            │
+   │                                                                  │
+   │     • one node's feature vector  (F → 64)                        │
+   │     • one edge's source/dest pair (a_src, a_dst)                 │
+   │     • one neighbour's projected vector (W·x)                     │
+   │     • one time step's window      (TCN kernel of size 3)         │
+   │                                                                  │
+   │   The graph (edge_index, edge_weight) is an INPUT to forward,    │
+   │   not a parameter. The graph-pooling step (mean ⊕ max over N)    │
+   │   collapses the node dim before any |V|-sensitive layer.         │
+   │                                                                  │
+   │   ⟹  the SAME weights produce valid forecasts                    │
+   │      on Delhi (N=40), Kolkata (N=10), and Guwahati (N=4),        │
+   │      with the only per-city ingredient being that city's         │
+   │      (edge_index, edge_weight) tensors.                          │
+   │                                                                  │
+   │   Variant A exploits this by loading source weights into a       │
+   │   target-instantiated encoder and fine-tuning on d% target data. │
+   │                                                                  │
+   │   Variant B exploits this further by forcing the pooled          │
+   │   embedding to be statistically indistinguishable across the     │
+   │   three cities via an adversarial city classifier through a GRL. │
+   │                                                                  │
+   └──────────────────────────────────────────────────────────────────┘
+```
+
+### 0.10 References for the concepts used in §0
+
+| concept | citation |
+|---|---|
+| GAT message passing | Veličković et al., ICLR-18 |
+| Inductive GNN philosophy | Hamilton, Ying & Leskovec, NeurIPS-17 |
+| Mean + max graph pooling | Xu, Hu, Leskovec & Jegelka (GIN), ICLR-19 |
+| TCN dilated temporal stack | Bai, Kolter & Koltun, 2018; Wu et al. (Graph WaveNet), IJCAI-19 |
+| Spatio-temporal sandwich | Yu, Yin & Zhu (STGCN), IJCAI-18; Wu et al. (MTGNN), KDD-20 |
+| Wind-aware edge prior | Wang et al. (PM2.5-GNN), SIGSPATIAL-20 |
+| Inductive transferability | Ruiz, Chamon & Ribeiro, NeurIPS-20; Levie et al., JMLR-21 |
+| Pre-train + fine-tune (GNN) | Hu et al., ICLR-20 |
+| Frozen-layer FT for PM2.5 | Yadav et al., 2024 |
+| Climatology residual | Yadav et al., 2024; long NWP tradition |
+| Gradient Reversal + DANN | Ganin & Lempitsky, ICML-15; Ganin et al., JMLR-16 |
+| Cross-city adversarial ST transfer | Tang et al. (DASTNet), CIKM-22; Wu et al. (UDA-GCN), WWW-20 |
+| LSTM-TL baseline (Stage I) | Sanjeev, Prakash & Maitra (B.Tech thesis), IIIT Sricity, 2025 |
+| Indian PM2.5 context | CSE, 2024; IQAir World Air Quality Report, 2024; WHO Air Quality Guidelines, 2021 |
+
+Full bibliography in [REFERENCES.md](REFERENCES.md).
 
 ---
 
