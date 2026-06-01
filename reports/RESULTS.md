@@ -1,6 +1,6 @@
 # PM2.5 GNN-TL — Results
 
-This report tabulates the corrected (fixed-protocol) results from the GNN transfer-learning project, alongside the thesis LSTM-TL reference. All GNN numbers are from the post-correction runs (interleaved 70/15/15 split + per-(month, hour) climatology residual + LSTM-grade per-city recipe); the v1 / pre-correction runs are documented for context in [ARCHITECTURE.md §5](ARCHITECTURE.md) but are excluded from this report.
+This report tabulates the final-protocol results from the GNN transfer-learning project. All numbers use the same protocol: interleaved 70/15/15 split + per-(month, hour) climatology residual + per-city training recipe, applied uniformly to the LSTM baseline and the GNN phases so cross-method comparisons are fair.
 
 > **Data-leakage & overfitting audit.** Every protocol decision in this report has been audited against the time-series-ML leakage taxonomy of Kaufman et al. (TKDD 2012) and the temporally-correlated-data CV literature of Roberts et al. (Ecography 2017), Bergmeir & Benítez (2012), and Bergmeir, Hyndman & Koo (CSDA 2018). See [AUDIT.md](AUDIT.md) for the full line-by-line analysis. Headline findings: scaler / climatology / window construction are leakage-free; in-loader imputation was patched to be causal ([src/utils.py:212-222](../src/utils.py#L212-L222)); the val−test R² gap averages **−0.005** (test slightly above val) — no overfitting. The interleaved-split inflation versus chronological-block CV is acknowledged and bounded; comparisons across LSTM and GNN methods use the same protocol so the inflation cancels.
 
@@ -17,38 +17,11 @@ All metrics are computed on the **target city's held-out test partition** in raw
 
 ---
 
-## 1. Reference — Thesis LSTM-TL Baseline
+## 1. LSTM Baseline (final protocol)
 
-The B.Tech thesis (Sanjeev, Prakash & Maitra, 2025) defines the numbers we must beat.
+A station-independent LSTM trained on the same final protocol used for the GNN runs below (interleaved split + climatology residual + per-city recipe). This is the apples-to-apples comparator for the GNN.
 
-### 1.1 Source-only LSTM (Thesis Table 5.1)
-
-| City | R² | MAE (µg/m³) |
-|---|--:|--:|
-| Delhi    | 0.6570 | 37.33 |
-| Kolkata  | 0.7861 | 14.66 |
-| Guwahati | 0.5723 | 16.30 |
-
-### 1.2 LSTM-TL transfer (Thesis Table 5.2, R²)
-
-| Source → Target | d=15% | d=30% | d=45% | d=60% |
-|---|--:|--:|--:|--:|
-| Delhi → Kolkata     | 0.7437 | **0.8189** | 0.8129 | 0.8051 |
-| Delhi → Guwahati    | 0.5797 | 0.6381 | 0.6210 | 0.6133 |
-| Kolkata → Delhi     | 0.6939 | 0.6908 | 0.6881 | 0.6870 |
-| Kolkata → Guwahati  | 0.5980 | 0.6030 | 0.5823 | 0.6271 |
-| Guwahati → Delhi    | 0.6995 | 0.6877 | 0.6815 | 0.6837 |
-| Guwahati → Kolkata  | 0.8098 | 0.8174 | 0.8164 | 0.8019 |
-
-**Thesis headline cell:** Delhi → Kolkata @ d=30%, **R² = 0.8189**, MAE = 13.32 µg/m³. The best result in the entire thesis Table 5.2.
-
----
-
-## 2. LSTM-TL — Fixed-Protocol Reproduction
-
-LSTM trained on the same fixed protocol used for the GNN runs below (interleaved split + climatology residual).
-
-### 2.1 Source-only LSTM
+### 1.1 Source-only LSTM
 
 | City | R² | MAE (µg/m³) |
 |---|--:|--:|
@@ -56,7 +29,7 @@ LSTM trained on the same fixed protocol used for the GNN runs below (interleaved
 | Kolkata  | 0.8627 |  7.78 |
 | Guwahati | 0.8320 | 12.19 |
 
-### 2.2 LSTM-TL transfer (full grid, R²)
+### 1.2 LSTM-TL transfer (full grid, R²)
 
 | Source → Target | d=15% | d=30% | d=45% | d=60% |
 |---|--:|--:|--:|--:|
@@ -264,16 +237,16 @@ The two GNN-TL stages tested on the identical 24-cell grid.
 
 ## 5. Headline Cross-Method Table
 
-| Source → Target @ d=30% | Thesis LSTM | Fixed LSTM | **Stage 1 GNN** | **Stage 2 GNN** | best | Δ best vs thesis |
-|---|--:|--:|--:|--:|:-:|--:|
-| Delhi → Kolkata     | 0.8189 | **0.8521** | 0.8158 | 0.8171 | LSTM-fix | +0.033 |
-| Delhi → Guwahati    | 0.6381 | **0.8224** | 0.8165 | 0.8131 | LSTM-fix | +0.184 |
-| Kolkata → Delhi     | 0.6908 | **0.8510** | 0.8085 | 0.8087 | LSTM-fix | +0.160 |
-| Kolkata → Guwahati  | 0.6030 | **0.8129** | 0.8044 | 0.7916 | LSTM-fix | +0.210 |
-| Guwahati → Delhi    | 0.6877 | **0.8491** | 0.8030 | 0.8029 | LSTM-fix | +0.161 |
-| Guwahati → Kolkata  | 0.8174 | **0.8420** | 0.8085 | 0.8039 | LSTM-fix | +0.025 |
+| Source → Target @ d=30% | Fixed LSTM | **Stage 1 GNN** | **Stage 2 GNN** | best |
+|---|--:|--:|--:|:-:|
+| Delhi → Kolkata     | **0.8521** | 0.8158 | 0.8171 | LSTM-fix |
+| Delhi → Guwahati    | **0.8224** | 0.8165 | 0.8131 | LSTM-fix |
+| Kolkata → Delhi     | **0.8510** | 0.8085 | 0.8087 | LSTM-fix |
+| Kolkata → Guwahati  | **0.8129** | 0.8044 | 0.7916 | LSTM-fix |
+| Guwahati → Delhi    | **0.8491** | 0.8030 | 0.8029 | LSTM-fix |
+| Guwahati → Kolkata  | **0.8420** | 0.8085 | 0.8039 | LSTM-fix |
 
-**Every pair beats the thesis.** The LSTM-fixed baseline is the strongest single-shot transferer in absolute R², but the GNN stages remain within ~0.04 R² and uniquely solve the structural-transfer problem: the same architecture trained on Delhi's 40-station graph runs forward on Guwahati's 4-station graph with **no parameter-shape change** — a property the LSTM cannot have.
+The LSTM-fixed baseline is the strongest single-shot transferer in absolute R², but the GNN stages remain within ~0.04 R² and uniquely solve the structural-transfer problem: the same architecture trained on Delhi's 40-station graph runs forward on Guwahati's 4-station graph with **no parameter-shape change** — a property the station-independent LSTM cannot have.
 
 ---
 
@@ -287,27 +260,27 @@ All three city graphs use the same k-NN distance kernel with k=3 and Gaussian-de
 | Kolkata  | 10 |  30 | 3.00 |
 | Guwahati |  4 |  12 | 3.00 |
 
-The inductive ST-GNN's parameter count does **not** depend on `|V|`, so the same model trained on Delhi (`|V|`=40) runs forward on Guwahati (`|V|`=4) without any shape change — the demonstrable resolution of the parameter-shape mismatch failure mode (F-i in the thesis post-mortem).
+The inductive ST-GNN's parameter count does **not** depend on `|V|`, so the same model trained on Delhi (`|V|`=40) runs forward on Guwahati (`|V|`=4) without any shape change — the demonstrable resolution of the parameter-shape mismatch failure mode (F-i in [MAIN_REPORT.md §3](MAIN_REPORT.md)).
 
 ---
 
 ## 7. Summary
 
-### 7.1 Source-only R² — improvement over thesis baseline
+### 7.1 Source-only R² (final protocol)
 
-| City | Thesis LSTM | Fixed LSTM | Fixed GAT-GNN | Δ GAT-GNN vs thesis |
-|---|--:|--:|--:|--:|
-| Delhi    | 0.6570 | 0.8501 | 0.8343 | **+0.1773** |
-| Kolkata  | 0.7861 | 0.8627 | 0.8244 | +0.0383 |
-| Guwahati | 0.5723 | 0.8320 | 0.8311 | **+0.2588** |
+| City | Fixed LSTM | Fixed GAT-GNN |
+|---|--:|--:|
+| Delhi    | 0.8501 | 0.8343 |
+| Kolkata  | 0.8627 | 0.8244 |
+| Guwahati | 0.8320 | 0.8311 |
 
-The largest GNN gain over the thesis is on **Guwahati** — the city with the smallest graph and the largest pre-correction failure (legacy GAT R² was −0.22; fixed GAT R² is +0.83, a swing of over a full unit).
+Both forecasters reach R² ≈ 0.82–0.86 on all three cities, **including the 4-station Guwahati graph** — the demonstration that the inductive encoder operates correctly at every `|V|`. The LSTM is marginally ahead on absolute single-city fit; the GNN's distinctive value is structural cross-`|V|` transfer.
 
 ### 7.2 Transfer R² @ d=30% — headline cells
 
-- **Delhi → Kolkata (thesis headline)**: thesis 0.8189 → Stage 1 0.8158 → Stage 2 **0.8171**. GNN matches thesis within 0.002 R².
-- **Delhi → Guwahati**: thesis 0.6381 → Stage 1 0.8165 → Stage 2 0.8131. GNN +0.175 over thesis.
-- **Kolkata → Guwahati**: thesis 0.6030 → Stage 1 0.8044 → Stage 2 0.7916. GNN +0.189 over thesis.
+- **Delhi → Kolkata**: Stage 1 0.8158 → Stage 2 **0.8171**.
+- **Delhi → Guwahati**: Stage 1 **0.8165** → Stage 2 0.8131.
+- **Kolkata → Guwahati**: Stage 1 **0.8044** → Stage 2 0.7916.
 
 ### 7.3 Two-stage takeaway
 

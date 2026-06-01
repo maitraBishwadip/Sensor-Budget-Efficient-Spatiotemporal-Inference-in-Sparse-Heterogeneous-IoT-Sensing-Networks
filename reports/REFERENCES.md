@@ -4,7 +4,7 @@ The bibliography for the PM2.5 GNN-TL project. Organized by topic. All citations
 
 ---
 
-## A. Stage I — the B.Tech thesis baseline
+## A. Transfer learning for environmental / cross-city time series
 
 Sanjeev, C. T., Prakash, B. B., & Maitra, B. (2025). *Transfer Learning Framework for PM2.5 Forecasting in Indian Cities.* B.Tech thesis, Indian Institute of Information Technology Sricity. Supervised by Dr. Mainak Thakur. Submitted 05 January 2025.
 
@@ -216,4 +216,4 @@ World Health Organization. (2021). *WHO global air quality guidelines: particula
 
 ---
 
-*End of References. Cross-references in [reports/MAIN_REPORT.md](MAIN_REPORT.md), [reports/RESULTS.md](RESULTS.md), and [reports/ResearchProposal.md](ResearchProposal.md) all draw from this bibliography.*
+*End of References. Cross-references in [reports/MAIN_REPORT.md](MAIN_REPORT.md), [reports/RESULTS.md](RESULTS.md), and [reports/PAPER_DRAFT.md](PAPER_DRAFT.md) all draw from this bibliography.*

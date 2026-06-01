@@ -26,7 +26,7 @@ This section walks through the **specific problem this project tackles** — for
 
 ### 0.1 The problem, in concrete terms
 
-India has about **350 CPCB Continuous Ambient Air Quality Monitoring (CAAQM) stations** spread very unevenly: Delhi has 40 in one ~50 km × 50 km basin, Kolkata has 10 across a coastal-plain delta, and Guwahati in Assam has only 4 in a Brahmaputra-valley pocket surrounded by hills. WHO's 5 µg/m³ annual PM2.5 guideline (WHO, 2021) is exceeded by a factor of 10–25× in all three (IQAir, 2024). The B.Tech-thesis foundation of this project (Sanjeev, Prakash & Maitra, 2025) showed that **LSTM-TL** transfers reasonably well between similar-sized cities but degrades sharply when the target has very few stations — the **Guwahati problem**.
+India has about **350 CPCB Continuous Ambient Air Quality Monitoring (CAAQM) stations** spread very unevenly: Delhi has 40 in one ~50 km × 50 km basin, Kolkata has 10 across a coastal-plain delta, and Guwahati in Assam has only 4 in a Brahmaputra-valley pocket surrounded by hills. WHO's 5 µg/m³ annual PM2.5 guideline (WHO, 2021) is exceeded by a factor of 10–25× in all three (IQAir, 2024). Prior station-independent **LSTM-TL** for cross-city PM2.5 (Sanjeev, Prakash & Maitra, 2025) transfers reasonably well between similar-sized cities but degrades sharply when the target has very few stations — the **Guwahati problem** — and, being station-independent, cannot exploit spatial coupling. That motivates the graph approach here.
 
 The exact forecasting task is:
 
@@ -44,7 +44,7 @@ So one training example is a tensor `[H=8, N_c, F=14]` and one label is a vector
 
 Two structural difficulties make this harder than a standard time-series forecast:
 
-1. **Topological heterogeneity.** Delhi's 40-station graph and Guwahati's 4-station graph cannot share an architecture that has a `|V|`-shaped parameter anywhere. This is failure mode F-i in the thesis post-mortem.
+1. **Topological heterogeneity.** Delhi's 40-station graph and Guwahati's 4-station graph cannot share an architecture that has a `|V|`-shaped parameter anywhere. This is failure mode F-i (parameter-shape mismatch).
 2. **Cross-city distribution shift.** Delhi has annual-mean PM2.5 ≈ 100 µg/m³ dominated by winter biomass + vehicular smog (CSE, 2024); Kolkata is a humid delta with eastern-IGP transport patterns; Guwahati has lower absolute concentrations but a steep monsoon-cycle. Naïve transfer fails because the **target distribution doesn't look like the source**.
 
 This project's design addresses (1) with an **inductive ST-GNN** (Hamilton et al., NeurIPS-17; Veličković et al., ICLR-18) and (2) with two complementary transfer strategies: pre-train + fine-tune (Yadav et al., 2024; Hu et al., ICLR-20) and adversarial graph-level domain adaptation (Ganin & Lempitsky, ICML-15; Tang et al., CIKM-22).
@@ -496,7 +496,7 @@ Combining everything above:
 | Climatology residual | Yadav et al., 2024; long NWP tradition |
 | Gradient Reversal + DANN | Ganin & Lempitsky, ICML-15; Ganin et al., JMLR-16 |
 | Cross-city adversarial ST transfer | Tang et al. (DASTNet), CIKM-22; Wu et al. (UDA-GCN), WWW-20 |
-| LSTM-TL baseline (Stage I) | Sanjeev, Prakash & Maitra (B.Tech thesis), IIIT Sricity, 2025 |
+| Station-independent LSTM-TL for cross-city PM2.5 | Sanjeev, Prakash & Maitra, 2025; Yadav et al., 2024 |
 | Indian PM2.5 context | CSE, 2024; IQAir World Air Quality Report, 2024; WHO Air Quality Guidelines, 2021 |
 
 Full bibliography in [REFERENCES.md](REFERENCES.md).
@@ -511,7 +511,7 @@ For each city `c` we have `N_c` CPCB CAAQM stations sampled at 3-hour cadence wi
 
 The transfer-learning challenge has two faces:
 
-1. **Topological heterogeneity** — `N_Delhi = 40`, `N_Kolkata = 10`, `N_Guwahati = 4`. Any model whose parameter count depends on `N` cannot be transferred across cities without surgery. This is failure mode F-i in the thesis post-mortem.
+1. **Topological heterogeneity** — `N_Delhi = 40`, `N_Kolkata = 10`, `N_Guwahati = 4`. Any model whose parameter count depends on `N` cannot be transferred across cities without surgery. This is failure mode F-i (parameter-shape mismatch).
 2. **Distribution shift** — cross-year and cross-region differences in PM2.5 climatology, met regimes, and emission sources cause large covariate + label shift between source and target.
 
 The architecture in §2 tackles (1) by being **inductive** at the spatial axis. The training protocol in §6 tackles (2) via climatology-residual normalization (Yadav et al., 2024) and adversarial domain adaptation (Ganin & Lempitsky, 2015).
@@ -819,7 +819,7 @@ A causal-imputation fix landed in [utils.py:212-222](../src/utils.py#L212-L222):
 | Climatology residual | per-(month, hour) mean, fit on train | Yadav et al. (2024); long line of NWP literature |
 | Cross-city ST-prediction | source → target with d% target data | RegionTrans (Wang et al., IJCAI-19); MetaST (Yao et al., WWW-19); ST-GFSL (Lu et al., KDD-22); CrossTReS (Jin et al., KDD-22); TransGTR (Jin et al., KDD-23) |
 | Three-way verification (zero-shot vs scratch vs transfer) | per-cell in [src/train_gnn_tl.py](../src/train_gnn_tl.py) | uncommon in the literature |
-| Stage-I baseline anchor | LSTM-TL B.Tech thesis | Sanjeev, Prakash & Maitra (2025) |
+| Station-independent LSTM-TL (related work) | cross-city PM2.5 LSTM transfer | Sanjeev, Prakash & Maitra (2025); Yadav et al. (2024) |
 
 Full bibliography in [REFERENCES.md](REFERENCES.md).
 
@@ -856,4 +856,4 @@ Full bibliography in [REFERENCES.md](REFERENCES.md).
 
 ---
 
-*Companion documents: [MAIN_REPORT.md](MAIN_REPORT.md) (narrative), [RESULTS.md](RESULTS.md) (numbers), [AUDIT.md](AUDIT.md) (data-leakage & overfitting audit), [REFERENCES.md](REFERENCES.md) (bibliography), [ResearchProposal.md](ResearchProposal.md) (publication framing).*
+*Companion documents: [MAIN_REPORT.md](MAIN_REPORT.md) (narrative), [RESULTS.md](RESULTS.md) (numbers), [AUDIT.md](AUDIT.md) (data-leakage & overfitting audit), [PAPER_DRAFT.md](PAPER_DRAFT.md) (journal-style manuscript), [REFERENCES.md](REFERENCES.md) (bibliography).*

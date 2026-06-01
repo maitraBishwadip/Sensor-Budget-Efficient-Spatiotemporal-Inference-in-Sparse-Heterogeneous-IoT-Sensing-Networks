@@ -11,7 +11,7 @@
 
 ## Abstract
 
-Operational PM2.5 forecasting in many Indian cities is constrained by sparse and heterogeneous monitoring infrastructure: Delhi has 40 Central Pollution Control Board (CPCB) stations, Kolkata 10, and Guwahati only 4. Transfer learning (TL) is the natural remedy for such data scarcity, but the dominant station-independent LSTM-TL approach — including our prior B.Tech-thesis baseline — cannot exploit the spatial coupling between stations and produces parameter shapes that cannot be reused across cities of different sizes. We address both limitations with an **inductive spatio-temporal graph neural network (ST-GNN)** whose parameter count is independent of `|V|`, and we transfer it across cities through two complementary strategies: a supervised pre-train + fine-tune (PT-FT) recipe, and a novel **Graph-DANN** that performs adversarial domain adaptation on the size-invariant mean+max-pooled graph embedding. The single encoder, trained on Delhi's 40-station graph, is shown to operate verbatim on Guwahati's 4-station graph without any shape change. Across the full grid of six ordered city pairs × four target-data fractions {15, 30, 45, 60 %} (24 cells per stage), Stage 1 PT-FT achieves "real" knowledge transfer in 24/24 cells and Stage 2 Graph-DANN in 23/24 cells under our strict three-way verification protocol (transfer must beat both the source-only zero-shot baseline AND a random-initialized scratch baseline on the same target sub-sample). The two GNN-TL stages are statistically tied in absolute forecasting accuracy (mean R² difference = 0.0009; 12 wins each), but Stage 2 contributes an explicitly city-invariant graph embedding — a representation guarantee that PT-FT does not provide and the basis for zero-target-label deployment. Compared with the B.Tech-thesis LSTM-TL baseline, every (source, target) cell is improved (Δ R² up to +0.21 on Delhi → Guwahati). We accompany the methods with a complete data-leakage and overfitting audit and report a mean validation–test R² gap of −0.005 (test slightly above val) on all reported cells, indicating no overfitting. Code and processed data are released under a permissive licence to support reproducibility on CPU-only research environments.
+Operational PM2.5 forecasting in many Indian cities is constrained by sparse and heterogeneous monitoring infrastructure: Delhi has 40 Central Pollution Control Board (CPCB) stations, Kolkata 10, and Guwahati only 4. Transfer learning (TL) is the natural remedy for such data scarcity, but the dominant station-independent LSTM-TL approach cannot exploit the spatial coupling between stations and produces parameter shapes that cannot be reused across cities of different sizes. We address both limitations with an **inductive spatio-temporal graph neural network (ST-GNN)** whose parameter count is independent of `|V|`, and we transfer it across cities through two complementary strategies: a supervised pre-train + fine-tune (PT-FT) recipe, and a novel **Graph-DANN** that performs adversarial domain adaptation on the size-invariant mean+max-pooled graph embedding. The single encoder, trained on Delhi's 40-station graph, is shown to operate verbatim on Guwahati's 4-station graph without any shape change. Across the full grid of six ordered city pairs × four target-data fractions {15, 30, 45, 60 %} (24 cells per stage), Stage 1 PT-FT achieves "real" knowledge transfer in 24/24 cells and Stage 2 Graph-DANN in 23/24 cells under our strict three-way verification protocol (transfer must beat both the source-only zero-shot baseline AND a random-initialized scratch baseline on the same target sub-sample). The two GNN-TL stages are statistically tied in absolute forecasting accuracy (mean R² difference = 0.0009; 12 wins each), but Stage 2 contributes an explicitly city-invariant graph embedding — a representation guarantee that PT-FT does not provide and the basis for zero-target-label deployment. Against a fixed-protocol station-independent LSTM baseline, the GNN phases remain within ≈ 0.04 R² in absolute accuracy while uniquely solving the structural-transfer problem (one architecture across `|V| ∈ {4, 10, 40}` with no parameter-shape change). We accompany the methods with a complete data-leakage and overfitting audit and report a mean validation–test R² gap of −0.005 (test slightly above val) on all reported cells, indicating no overfitting. Code and processed data are released under a permissive licence to support reproducibility on CPU-only research environments.
 
 **Keywords:** PM2.5 forecasting; graph neural networks; transfer learning; adversarial domain adaptation; heterogeneous graphs; air quality; cross-city; India.
 
@@ -27,11 +27,11 @@ Particulate matter with aerodynamic diameter below 2.5 µm (PM2.5) is the world'
 
 The Continuous Ambient Air Quality Monitoring (CAAQM) network operated by the Central Pollution Control Board (CPCB) provides the only public real-time PM2.5 feed for most Indian cities. Coverage is highly unequal: Delhi has 40 CAAQM stations in a ~50 × 50 km basin, Kolkata has 10 across a coastal-delta region, and Guwahati in the Northeast has only 4 stations in a Brahmaputra-valley pocket (Awasthi, Pandey & Verma, 2023). Many secondary cities have one or none. This long-tailed distribution of monitor density means that any "train a deep model per city" recipe is feasible only for Delhi and a handful of Tier-1 cities, leaving the majority of India under-served by data-driven forecasting.
 
-Transfer learning (TL) is the natural remedy: pre-train a forecasting model on a data-rich source city and adapt it to a data-scarce target with a small fine-tune set. The B.Tech-thesis study underlying this project (Sanjeev, Prakash & Maitra, 2025) established that an LSTM-TL recipe achieves substantial R² gains on data-scarce targets (Guwahati R² 0.5723 → 0.6271 for Kolkata → Guwahati at 60 % target data) and provides our Stage I empirical anchor. Comparable TL gains have been reported for ozone forecasting in the Alpine region (Sangiorgio & Guariso, 2024), Delhi PM2.5 across years (Yadav et al., 2024), and crop-yield prediction across the US Corn Belt (Khan, Li & Maimaitijiang, 2024). Cross-city PM2.5 forecasting with TL is, however, structurally different from these settings because the source and target are not the same physical system observed at different times — they are different urban airsheds with different topologies, emission inventories, and meteorological regimes.
+Transfer learning (TL) is the natural remedy: pre-train a forecasting model on a data-rich source city and adapt it to a data-scarce target with a small fine-tune set. Station-independent LSTM-TL has been shown to achieve substantial R² gains on data-scarce cross-city PM2.5 targets (Sanjeev, Prakash & Maitra, 2025), and comparable TL gains have been reported for ozone forecasting in the Alpine region (Sangiorgio & Guariso, 2024), Delhi PM2.5 across years (Yadav et al., 2024), and crop-yield prediction across the US Corn Belt (Khan, Li & Maimaitijiang, 2024). Cross-city PM2.5 forecasting with TL is, however, structurally different from these settings because the source and target are not the same physical system observed at different times — they are different urban airsheds with different topologies, emission inventories, and meteorological regimes.
 
-### 1.3 The architectural limitation that motivates Stage II
+### 1.3 The architectural limitation of station-independent forecasters
 
-The LSTM-TL recipe — including the thesis baseline and the more recent attention-LSTM work of Yadav et al. (2024) — operates **station-independently**: one sequence-to-sequence forecaster is applied to each monitoring station's time series in isolation, and the predictions are concatenated. This has two consequences that cap how far TL can take us:
+The station-independent LSTM-TL recipe (Sanjeev et al., 2025; Yadav et al., 2024) operates **station-independently**: one sequence-to-sequence forecaster is applied to each monitoring station's time series in isolation, and the predictions are concatenated. This has two consequences that cap how far TL can take us:
 
 (i) **Spatial coupling is ignored.** PM2.5 transports along wind corridors and forms regional plumes whose spatial structure (Wang et al., 2020 PM2.5-GNN) carries genuine predictive signal. Station-independent LSTMs cannot exploit it.
 
@@ -59,7 +59,7 @@ Set against the cross-city spatio-temporal TL literature (RegionTrans, Wang et a
 
 The remainder of the paper is organized as follows. §2 surveys related work. §3 formalizes the problem and describes the data. §4 details the inductive ST-GNN encoder; §5 the two transfer strategies. §6 specifies the experimental protocol including the audit; §7 reports results across the 24-cell grid. §8 discusses implications, limitations, and threats to validity. §9 concludes.
 
-> *Figure 1 (placeholder) — Two-act research narrative diagram. Panel A: data-scarcity story (CPCB station counts across India, Delhi/Kolkata/Guwahati highlighted). Panel B: LSTM-TL (Stage I) closes part of the gap. Panel C: GNN-TL (Stage II) unlocks the next ceiling by exploiting spatial coupling.*
+> *Figure 1 (placeholder) — Motivation diagram. Panel A: data-scarcity story (CPCB station counts across India, Delhi/Kolkata/Guwahati highlighted). Panel B: station-independent LSTM-TL closes part of the gap but ignores spatial coupling. Panel C: the inductive GNN-TL exploits spatial coupling and transfers across heterogeneous topologies.*
 
 ---
 
@@ -295,10 +295,7 @@ The `--fixed` protocol uses a deterministic **interleaved 70/15/15 split**: ever
 
 ### 6.2 Baselines
 
-Two baseline families are reported in §7:
-
-- **B-thesis-LSTM.** The B.Tech-thesis LSTM-TL recipe (Sanjeev, Prakash & Maitra, 2025), chronological split, no climatology residual.
-- **B-LSTM-fixed.** The same LSTM architecture trained under our `--fixed` protocol (interleaved split, climatology residual, per-city LSTM-grade hyperparameters). This is the apples-to-apples LSTM comparator for the GNN; reported in [RESULTS.md](RESULTS.md) §2.
+The baseline reported in §7 is **B-LSTM-fixed**: a station-independent LSTM trained under our `--fixed` protocol (interleaved split, climatology residual, per-city LSTM-grade hyperparameters), reported in [RESULTS.md](RESULTS.md) §2. This is the apples-to-apples LSTM comparator for the GNN — same data, same protocol, same per-city recipe — so any protocol effect cancels at comparison time.
 
 Per-cell ablations within each stage are: **zero-shot** (load source weights, no FT) and **scratch** (random init, FT only). See §5.3.
 
@@ -367,17 +364,17 @@ Table 8 compares the three source-only forecasters across the three cities.
 
 **Table 8. Source-only test R² and MAE (µg m⁻³) per city.**
 
-| City | Thesis LSTM (chronological) | LSTM-fixed | GAT-GNN-fixed |
-|---|--:|--:|--:|
-| Delhi    | 0.6570 / 37.33 | **0.8501** / 23.74 | 0.8343 / 24.18 |
-| Kolkata  | 0.7861 / 14.66 | **0.8627** /  7.78 | 0.8244 /  9.23 |
-| Guwahati | 0.5723 / 16.30 | **0.8320** / 12.19 | 0.8311 / 12.75 |
+| City | LSTM-fixed | GAT-GNN-fixed |
+|---|--:|--:|
+| Delhi    | **0.8501** / 23.74 | 0.8343 / 24.18 |
+| Kolkata  | **0.8627** /  7.78 | 0.8244 /  9.23 |
+| Guwahati | **0.8320** / 12.19 | 0.8311 / 12.75 |
 
-The largest absolute gains over the thesis baseline are on **Guwahati** (+0.26 R²) and **Delhi** (+0.18 R²) — the cities with the smallest graph and the largest pre-correction failure, respectively. LSTM-fixed slightly outperforms GAT-GNN-fixed in absolute terms (≈ +0.02 R²); the GNN's advantage lies in cross-`|V|` transfer (§7.3) not raw fit.
+Both source-only forecasters reach R² ≈ 0.82–0.86 on all three cities, **including the 4-station Guwahati graph** — confirming the inductive encoder operates correctly at every `|V|`. LSTM-fixed slightly outperforms GAT-GNN-fixed in absolute terms (≈ +0.02 R²); the GNN's advantage lies in cross-`|V|` transfer (§7.3), not raw single-city fit.
 
 ### 7.2 LSTM-TL fixed-protocol reproduction (the apples-to-apples baseline)
 
-Table 9 reports the LSTM-TL full grid under the `--fixed` protocol. This is the Stage I anchor against which the Stage II GNN results in §§ 7.3–7.4 must be compared (not the thesis chronological-split numbers).
+Table 9 reports the LSTM-TL full grid under the `--fixed` protocol. This is the apples-to-apples LSTM baseline against which the GNN results in §§ 7.3–7.4 are compared.
 
 **Table 9. LSTM-TL transfer R² (--fixed protocol, full grid).**
 
@@ -392,7 +389,7 @@ Table 9 reports the LSTM-TL full grid under the `--fixed` protocol. This is the 
 
 ### 7.3 Stage 1 — PT-FT GNN-TL (full grid + verification)
 
-Table 10 reports the Stage 1 transfer R² across the full 24-cell grid. Table 11 reports the three-way verification at `d = 30 %` (selected as the headline column because it matches the thesis Table 5.2 headline; full per-cell verification is in [RESULTS.md §3.1.3](RESULTS.md)).
+Table 10 reports the Stage 1 transfer R² across the full 24-cell grid. Table 11 reports the three-way verification at `d = 30 %` (selected as the headline column; full per-cell verification is in [RESULTS.md §3.1.3](RESULTS.md)).
 
 **Table 10. Stage 1 (PT-FT) transfer R² — full grid.**
 
@@ -475,18 +472,18 @@ Table 15 compares the four methods on the headline `d = 30 %` column.
 
 **Table 15. Cross-method headline at d = 30 %.**
 
-| Source → Target | Thesis LSTM | LSTM-fixed | Stage 1 GNN | Stage 2 GNN | Best | Δ best vs thesis |
-|---|--:|--:|--:|--:|:-:|--:|
-| Delhi → Kolkata     | 0.8189 | **0.8521** | 0.8158 | 0.8171 | LSTM-fix | +0.033 |
-| Delhi → Guwahati    | 0.6381 | **0.8224** | 0.8165 | 0.8131 | LSTM-fix | +0.184 |
-| Kolkata → Delhi     | 0.6908 | **0.8510** | 0.8085 | 0.8087 | LSTM-fix | +0.160 |
-| Kolkata → Guwahati  | 0.6030 | **0.8129** | 0.8044 | 0.7916 | LSTM-fix | +0.210 |
-| Guwahati → Delhi    | 0.6877 | **0.8491** | 0.8030 | 0.8029 | LSTM-fix | +0.161 |
-| Guwahati → Kolkata  | 0.8174 | **0.8420** | 0.8085 | 0.8039 | LSTM-fix | +0.025 |
+| Source → Target | LSTM-fixed | Stage 1 GNN | Stage 2 GNN | Best |
+|---|--:|--:|--:|:-:|
+| Delhi → Kolkata     | **0.8521** | 0.8158 | 0.8171 | LSTM-fix |
+| Delhi → Guwahati    | **0.8224** | 0.8165 | 0.8131 | LSTM-fix |
+| Kolkata → Delhi     | **0.8510** | 0.8085 | 0.8087 | LSTM-fix |
+| Kolkata → Guwahati  | **0.8129** | 0.8044 | 0.7916 | LSTM-fix |
+| Guwahati → Delhi    | **0.8491** | 0.8030 | 0.8029 | LSTM-fix |
+| Guwahati → Kolkata  | **0.8420** | 0.8085 | 0.8039 | LSTM-fix |
 
-Every fixed-protocol method beats the thesis baseline on every pair; LSTM-fixed is the strongest single-shot transferer in absolute R², but the GNN stages remain within ≈ 0.04 R² *and* uniquely solve the structural-transfer problem of §1.3 — the same architecture trained on Delhi's 40-station graph runs forward on Guwahati's 4-station graph with no parameter-shape change.
+LSTM-fixed is the strongest single-shot transferer in absolute R², but the GNN stages remain within ≈ 0.04 R² *and* uniquely solve the structural-transfer problem of §1.3 — the same architecture trained on Delhi's 40-station graph runs forward on Guwahati's 4-station graph with no parameter-shape change.
 
-> *Figure 6 (placeholder) — Bar chart of the six "best" cells in Table 15 split by method (Thesis LSTM, LSTM-fixed, Stage 1, Stage 2) to give a single-glance picture of the gap closing.*
+> *Figure 6 (placeholder) — Bar chart of the six "best" cells in Table 15 split by method (LSTM-fixed, Stage 1, Stage 2) for a single-glance accuracy comparison.*
 
 ### 7.7 Sensitivity of Stage 2 stabilization fixes (ablation summary)
 
@@ -568,7 +565,7 @@ We document the threats to validity in the same audit-style register as §6.5.
 
 ## 10. Conclusion
 
-We have presented an inductive spatio-temporal graph neural network with two complementary cross-city transfer mechanisms — supervised pre-train + fine-tune (PT-FT) and adversarial Graph-DANN — designed for the practical regime of Indian urban PM2.5 forecasting where source and target cities differ in monitoring-station count by an order of magnitude. The same ~25 k-parameter encoder, trained on Delhi's 40-station graph, operates verbatim on Guwahati's 4-station graph. Across the full 24-cell grid for each stage we obtain 24/24 (PT-FT) and 23/24 (Graph-DANN) "real" knowledge-transfer passes under our strict three-way verification protocol. The two stages are statistically tied on absolute forecast accuracy; Stage 2's contribution is a representation guarantee (city-invariant pooled embedding) that PT-FT does not provide and that is the basis for the natural zero-target-label and multi-source extensions. Every reported cell beats the thesis LSTM-TL baseline by 0.025–0.21 R². The work is accompanied by a complete data-leakage and overfitting audit and is reproducible on CPU-only hardware. The most immediate paper-extending experiments are (a) a chronological-block sensitivity analysis, (b) seed sweeps with Diebold–Mariano testing, and (c) the multi-source Stage III with three-plus cities.
+We have presented an inductive spatio-temporal graph neural network with two complementary cross-city transfer mechanisms — supervised pre-train + fine-tune (PT-FT) and adversarial Graph-DANN — designed for the practical regime of Indian urban PM2.5 forecasting where source and target cities differ in monitoring-station count by an order of magnitude. The same ~25 k-parameter encoder, trained on Delhi's 40-station graph, operates verbatim on Guwahati's 4-station graph. Across the full 24-cell grid for each stage we obtain 24/24 (PT-FT) and 23/24 (Graph-DANN) "real" knowledge-transfer passes under our strict three-way verification protocol. The two stages are statistically tied on absolute forecast accuracy; Stage 2's contribution is a representation guarantee (city-invariant pooled embedding) that PT-FT does not provide and that is the basis for the natural zero-target-label and multi-source extensions. Against a fixed-protocol station-independent LSTM baseline the GNN phases stay within ≈ 0.04 R² on absolute accuracy while uniquely solving the structural-transfer problem. The work is accompanied by a complete data-leakage and overfitting audit and is reproducible on CPU-only hardware. The most immediate paper-extending experiments are (a) a chronological-block sensitivity analysis, (b) seed sweeps with Diebold–Mariano testing, and (c) the multi-source Stage III with three-plus cities.
 
 ---
 
@@ -596,7 +593,7 @@ We thank the Central Pollution Control Board (CPCB) for the open CAAQM data; the
 
 ## Author contributions
 
-B.M. designed the GNN-TL framework, implemented the codebase, ran all experiments, performed the audit, and wrote the manuscript. C.T.S. and B.B.P. contributed the LSTM-TL B.Tech-thesis baseline and the data pipeline. M.T. supervised the project and the methodology.
+B.M. designed the GNN-TL framework, implemented the codebase, ran all experiments, performed the audit, and wrote the manuscript. C.T.S. and B.B.P. contributed the station-independent LSTM-TL baseline and the data pipeline. M.T. supervised the project and the methodology.
 
 ## Funding
 
@@ -610,7 +607,7 @@ The authors declare no competing interests.
 
 ## References
 
-The complete bibliography is in our [REFERENCES.md](REFERENCES.md) companion document, organized by topic (A. Stage I baseline; B. ST-GNN backbones; C. Air-quality GNNs; D. Inductive GNN & pre-training; E. GNN domain adaptation; F. Cross-city ST-transfer; G. Temporal distribution adaptation; H. Graph normalization; I. Domain-adversarial foundations; J. Surveys; K. Air-quality policy & Indian context; L. PM2.5 with distribution shift; M. Deep TL for PM2.5 in India; N. Statistical testing; O. WHO standards; P. Time-series CV & leakage prevention). Citations used in this manuscript are listed below in alphabetical order.
+The complete bibliography is in our [REFERENCES.md](REFERENCES.md) companion document, organized by topic (A. TL for environmental / cross-city time series; B. ST-GNN backbones; C. Air-quality GNNs; D. Inductive GNN & pre-training; E. GNN domain adaptation; F. Cross-city ST-transfer; G. Temporal distribution adaptation; H. Graph normalization; I. Domain-adversarial foundations; J. Surveys; K. Air-quality policy & Indian context; L. PM2.5 with distribution shift; M. Deep TL for PM2.5 in India; N. Statistical testing; O. WHO standards; P. Time-series CV & leakage prevention). Citations used in this manuscript are listed below in alphabetical order.
 
 - Awasthi, A., Pandey, S. K., & Verma, V. (2023). *Atmospheric Environment, 314*, 120103.
 - Bai, L., Yao, L., Li, C., Wang, X., & Wang, C. (2020). AGCRN. *NeurIPS-20*.

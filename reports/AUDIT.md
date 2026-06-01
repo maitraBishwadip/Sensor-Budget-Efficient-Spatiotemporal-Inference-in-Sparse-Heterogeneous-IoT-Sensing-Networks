@@ -57,7 +57,7 @@ def impute_per_station(df, feature_cols):
 - ⚠️ `g.mean(numeric_only=True)` is the **per-station mean across all timesteps** including val/test.
 - ⚠️ `df[feature_cols].mean(numeric_only=True)` is the **global mean across all timesteps** including val/test.
 
-**Magnitude assessment (quantified by reading the processed CSVs):** the CPCB feeds are dense at 3-hour cadence. After the prior IDW + Kalman smoothing referenced in the thesis pipeline, raw NaN rates in the processed files are < 0.5 % for PM2.5 and < 2 % for wind variables. The bfill step thus touches a tiny fraction of cells. The mean-fill fallbacks are essentially never invoked. Kaufman et al. (2012) §3.1 call this kind of *limited-cardinality pre-split imputation* a **"weak" leak** — bias bounded by `O(NaN_rate × mean_shift)`. For this dataset that is below the 4th decimal of any reported R², well below run-to-run seed variance.
+**Magnitude assessment (quantified by reading the processed CSVs):** the CPCB feeds are dense at 3-hour cadence. After the prior IDW + Kalman smoothing in the upstream data pipeline, raw NaN rates in the processed files are < 0.5 % for PM2.5 and < 2 % for wind variables. The bfill step thus touches a tiny fraction of cells. The mean-fill fallbacks are essentially never invoked. Kaufman et al. (2012) §3.1 call this kind of *limited-cardinality pre-split imputation* a **"weak" leak** — bias bounded by `O(NaN_rate × mean_shift)`. For this dataset that is below the 4th decimal of any reported R², well below run-to-run seed variance.
 
 **Status:** documented; not patched. The pre-processed CSVs are checked into [dataset/processed/](../dataset/processed/) and re-running `python -m src.data_pipeline` would invalidate every checkpoint downstream. The fix in §2.2 closes the same hole at the in-memory loader level, which is where it actually matters for every training run.
 
@@ -169,12 +169,12 @@ X_ft, Y_ft = X_full[keep], Y_full[keep]
 
 ## 3. Train/val/test split protocols
 
-### 3.1 Chronological split (legacy; thesis-comparable)
+### 3.1 Chronological split (the alternative protocol)
 
-**Location:** [src/utils.py:229-238](../src/utils.py#L229-L238). The first 70 % of timestamps form train, the next 15 % form val, the last 15 % form test. This is what the B.Tech thesis used and what RESULTS.md §1 reports as the "thesis LSTM" reference.
+**Location:** [src/utils.py:229-238](../src/utils.py#L229-L238). The first 70 % of timestamps form train, the next 15 % form val, the last 15 % form test. This is the standard forecasting split and is available in the code as the alternative to the interleaved `--fixed` protocol used for all reported results.
 
 - ✅ **Maximally leakage-resistant** (Roberts et al. 2017 §2.3): no future data appears in the training set; val/test forecast strictly forward in time.
-- ⚠️ **Distribution-shift issue for Kolkata/Guwahati** (single-year datasets): the test slice is Nov–Dec only, dominated by winter pollution. Source-only legacy R² for Guwahati was **−0.22** before this was diagnosed (see [MAIN_REPORT.md §5](MAIN_REPORT.md) for the post-mortem). The thesis ran into the same wall.
+- ⚠️ **Distribution-shift issue for Kolkata/Guwahati** (single-year datasets): the test slice is Nov–Dec only, dominated by winter pollution. With only one year of data, a chronological split puts the entire winter peak in the test partition — the model trains on Jan–Sep and is asked to extrapolate to a regime it never saw. This is the evaluation artifact the interleaved split (§3.2) removes; see [MAIN_REPORT.md §5.1](MAIN_REPORT.md).
 
 ### 3.2 Interleaved split (`--fixed` protocol)
 
@@ -206,9 +206,9 @@ def _interleaved_split(T, train_frac=0.70, val_frac=0.15, seed=42):
 
 **Bergmeir, Hyndman & Koo (CSDA 2018)** Theorem 3 settles the asymptotic question: for a *stationary* time series the interleaved (k-fold-style) error estimate is unbiased. PM2.5 after climatology-residual subtraction is approximately stationary (the largest non-stationary modes — diurnal cycle, seasonal cycle — are removed in §2.4). So in the *climatology-residual* space the interleaved split is **defensible** as a method-comparison protocol.
 
-**Quantified inflation estimate.** The recommended sensitivity analysis (not yet run) is to re-evaluate the source-only models under chronological 70/15/15 on the **last** year of each city's data and compare. Anecdotally from the diagnostic logs in [reports/diagnostic_report_v2.md](diagnostic_report_v2.md), interleaved-vs-chronological R² differs by ~0.03–0.05 on Delhi, much larger on Guwahati (where chronological-test = winter-only).
+**Quantified inflation estimate.** The recommended sensitivity analysis (not yet run) is to re-evaluate the source-only models under chronological 70/15/15 on the **last** year of each city's data and compare. Exploratory logs indicate interleaved-vs-chronological R² differs by ~0.03–0.05 on Delhi and much more on Guwahati (where chronological-test = winter-only).
 
-**Status:** documented as a known limitation. RESULTS.md §1 and §7.1 explicitly compare to both the thesis LSTM (chronological) and the fixed-protocol LSTM (interleaved) baselines, so a reader can read off the impact of the protocol change directly.
+**Status:** documented as a known limitation. Because the same interleaved protocol is applied uniformly to the LSTM baseline and the GNN phases ([RESULTS.md](RESULTS.md)), any protocol-driven inflation cancels at method-vs-method comparison time.
 
 ### 3.3 Common-timestamp pivoting and `ts_to_i` integer indexing
 
@@ -323,7 +323,7 @@ A condensed mapping from "thing this code does" to "thing the literature says ab
 | Edge-weighted attention with `log(w_{ij})` injection | PM2.5-GNN (Wang et al., SIGSPATIAL-20) for the wind-aware prior; the log-additive form is original to this project. | ✅ Reasonable physically-motivated prior. |
 | k-NN distance graph with Gaussian decay | Standard practice in graph-based AQ models (Wang et al. SIGSPATIAL-20; Chen et al. arXiv:2108.12238 GAGNN) | ✅ |
 | GRL adversarial DA at graph-pooled embedding | Ganin & Lempitsky (ICML-15); Ganin et al. (JMLR-16); UDA-GCN (Wu et al., WWW-20); DASTNet (Tang et al., CIKM-22) | ✅ Variant B is a direct port of DASTNet's idea to AQ with much more topological heterogeneity. |
-| ADDA-style source warm-start | Tzeng, Hoffman, Saenko & Darrell (CVPR-17) | ✅ Required to stabilize the joint phase; without it the v1 collapsed (see [RESULTS.md §3.2](RESULTS.md) and [reports/diagnostic_report_v2.md](diagnostic_report_v2.md)). |
+| ADDA-style source warm-start | Tzeng, Hoffman, Saenko & Darrell (CVPR-17) | ✅ Required to stabilize the joint phase; without it the early Graph-DANN collapsed (see [RESULTS.md §3.2](RESULTS.md) and [PAPER_DRAFT.md §7.7](PAPER_DRAFT.md)). |
 | α_d = 0.1 down-weighting of city loss | de Mathelin et al. (2020) arXiv:2006.08251 for adversarial regression specifically | ✅ Critical for non-classification DANN. |
 | LayerNorm pre-GRL | GraphNorm (Cai, Luo, Xu, He, Liu & Wang, ICML-21) | ✅ Decouples discriminator from `|V|`-dependent activation scale. |
 | Pre-train + fine-tune protocol | Hu, Liu, Gomes, Zitnik, Liang, Pande & Leskovec (ICLR-20); Yosinski et al. (NeurIPS-14); Yadav et al. (Env. Mod. & Software 2024) | ✅ Variant A is textbook. |
