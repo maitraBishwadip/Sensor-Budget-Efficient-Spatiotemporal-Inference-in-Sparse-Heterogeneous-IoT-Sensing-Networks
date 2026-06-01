@@ -59,7 +59,9 @@ Set against the cross-city spatio-temporal TL literature (RegionTrans, Wang et a
 
 The remainder of the paper is organized as follows. §2 surveys related work. §3 formalizes the problem and describes the data. §4 details the two forecasters — the station-independent LSTM-TL model and the inductive ST-GNN encoder; §5 the cross-city transfer strategies. §6 specifies the experimental protocol including the audit; §7 reports results across the 24-cell grid. §8 discusses implications, limitations, and threats to validity. §9 concludes.
 
-> *Figure 1 (placeholder) — Motivation diagram. Panel A: data-scarcity story (CPCB station counts across India, Delhi/Kolkata/Guwahati highlighted). Panel B: station-independent LSTM-TL closes part of the gap but ignores spatial coupling. Panel C: the inductive GNN-TL exploits spatial coupling and transfers across heterogeneous topologies.*
+![Figure 1](../paper_draft_plots/fig1_motivation.png)
+
+**Figure 1.** Motivation. **(A)** The CPCB monitoring-density gap across the three study cities — Delhi has an order of magnitude more stations than Guwahati. **(B)** The station-independent LSTM-TL models each station in isolation, capturing temporal dynamics but no spatial coupling. **(C)** The inductive graph-TL learns a spatial operator over the monitoring graph and transfers the *same* parameters `θ` from the 40-station source to the 4-station target.
 
 ---
 
@@ -201,7 +203,9 @@ Input  X            [B, H, N, F]                       # batch, history, nodes, 
 
 None of these blocks has a parameter whose shape depends on `N` (proved in §4.4), so the same trained encoder runs verbatim on `N = 40`, `10`, or `4`.
 
-> *Figure 2 (placeholder) — Side-by-side schematic of the three city graphs (Delhi 40-node, Kolkata 10-node, Guwahati 4-node) annotated with their station-degree distribution and the same encoder operating on all three.*
+![Figure 2](../paper_draft_plots/fig2_city_graphs.png)
+
+**Figure 2.** The three city graphs, built from real CPCB station coordinates with the k-NN rule (k = 3, Gaussian-decay edge weights, σ = 5 km). `|V|` ranges over {40, 10, 4} and `|E|` over {120, 30, 12} at a constant average degree of 3.0; the same inductive encoder runs forward on all three without any parameter-shape change.
 
 ### 4.2 Layers
 
@@ -250,7 +254,9 @@ Every learnable parameter has a shape that depends only on `(F, d_hidden, d_gat)
 
 The same checkpoint thus loads onto Delhi's 40-station graph and Guwahati's 4-station graph without shape modification. The theoretical grounding for "the same operator generalizes across graphs of different sizes drawn from a similar generating process" is the graphon-transferability result of Ruiz, Chamon & Ribeiro (2020).
 
-> *Figure 3 (placeholder) — Block diagram of the inductive ST-GNN encoder: TCN₁ (per-node) → reshape → GAT₁ (vectorized over B·H graphs) → GAT₂ → reshape → TCN₂ → LayerNorm → Linear head. Annotate shape transformations and indicate which blocks see `|V|` (none).*
+![Figure 3](../paper_draft_plots/fig3_encoder_blocks.png)
+
+**Figure 3.** Block diagram of the inductive ST-GNN encoder, `TCN₁ → GAT₁ → GAT₂ → TCN₂ → LayerNorm → Linear head`, with the tensor shape annotated beneath each transition. The GAT layers are vectorized over the `B·H` per-timestep graphs; the TemporalConv blocks mix only along time, per node. No block carries a parameter whose shape depends on `|V|`, so the same ~25 k-parameter `θ` runs on `N = 40`, `10`, or `4`.
 
 ---
 
@@ -304,7 +310,9 @@ with the GRL multiplying gradients into the encoder by `−λ`. Three mini-batch
 
 **λ warm-up schedule** (Ganin et al., 2016): `λ(p) = 2/(1 + exp(−γ·p)) − 1`, `p = global_step / total_steps`, `γ = 10`. Starts at 0 (forecaster learns first); saturates near 1 by end of joint phase.
 
-> *Figure 4 (placeholder) — Graph-DANN architecture with the GRL, the three-city round-robin minibatch, and the `λ(p)` warm-up curve overlaid as an inset.*
+![Figure 4](../paper_draft_plots/fig4_graph_dann.png)
+
+**Figure 4.** Graph-DANN architecture. A three-city round-robin minibatch (source, target with labels withheld, third-city replay) feeds the shared inductive encoder; its size-invariant mean+max graph readout `z` branches into a forecast head (MSE) and, through a Gradient Reversal Layer, a 3-way city discriminator (cross-entropy). The GRL multiplies the discriminator's gradient into the encoder by `−λ`, so the encoder is trained to *fool* the classifier and produce a city-invariant embedding. Inset: the `λ(p) = 2/(1+e^{−10p}) − 1` warm-up schedule.
 
 ### 5.5 Why Graph-DANN over PT-FT
 
@@ -454,7 +462,9 @@ Best Stage 1 cell: **Delhi → Guwahati @ d = 45 %, R² = 0.8273**.
 
 All six cells pass; the full 24-cell verification (24/24 pass; mean gain over scratch +0.022 R²) is in Appendix A, Table A1.
 
-> *Figure 5 (placeholder) — Stage 1 transfer R² heatmap (6 source-target pairs × 4 `d %` values) with the zero-shot and scratch baselines overlaid as a small-multiples panel; annotate cells that fail the "real transfer" test (none).*
+![Figure 5](../paper_draft_plots/fig5_stage1_heatmaps.png)
+
+**Figure 5.** Stage 1 (PT-FT) three-way verification as small multiples (shared colour scale): zero-shot (source-only, no fine-tune; constant across `d`), scratch (random init, target fine-tune only), and transfer (PT-FT). In every one of the 24 cells the transfer panel exceeds both baselines — i.e. all 24 cells pass the "real transfer" test.
 
 ### 7.4 Stage 2 — Graph-DANN (full grid + verification)
 
@@ -520,7 +530,9 @@ Table 15 compares the four methods on the headline `d = 30 %` column.
 
 LSTM-fixed is the strongest single-shot transferer in absolute R², but the GNN stages remain within ≈ 0.04 R² *and* uniquely solve the structural-transfer problem of §1.3 — the same architecture trained on Delhi's 40-station graph runs forward on Guwahati's 4-station graph with no parameter-shape change.
 
-> *Figure 6 (placeholder) — Bar chart of the six "best" cells in Table 15 split by method (LSTM-fixed, Stage 1, Stage 2) for a single-glance accuracy comparison.*
+![Figure 6](../paper_draft_plots/fig6_headline_bars.png)
+
+**Figure 6.** Cross-method transfer accuracy at `d = 30 %` for all six ordered city pairs (Table 15). The fixed-protocol LSTM-TL is the strongest single-shot transferer in absolute R², while the two GNN stages remain within ≈ 0.04 R² and additionally solve the structural-transfer problem (one architecture across `|V| ∈ {4, 10, 40}` with no parameter-shape change).
 
 ### 7.7 Sensitivity of Stage 2 stabilization fixes (ablation summary)
 
@@ -799,4 +811,4 @@ All values are test-partition R² in raw PM2.5 space under the `--fixed` protoco
 
 ---
 
-*End of draft. Suggested figure budget: 6–8 figures across the introduction, methods, and results. Word count: ≈ 9 800 (within EMS / KBS norms for a methods paper). Suggested venue priority: Environmental Modelling & Software (best fit on methods × environmental application); Knowledge-Based Systems (strong on ML-methods framing); Atmospheric Environment (strongest on the AQ-domain framing but less methods-focused); Urban Climate (city-specific framing).*
+*End of draft. The six figures are embedded above; print-quality vector (PDF) and raster (PNG) versions are in `paper_draft_plots/`, regenerable via `python paper_draft_plots/make_figures.py`. Word count: ≈ 9 800 (within EMS / KBS norms for a methods paper). Suggested venue priority: Environmental Modelling & Software (best fit on methods × environmental application); Knowledge-Based Systems (strong on ML-methods framing); Atmospheric Environment (strongest on the AQ-domain framing but less methods-focused); Urban Climate (city-specific framing).*
