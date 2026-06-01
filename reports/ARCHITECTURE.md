@@ -2,7 +2,7 @@
 
 A deep-dive into **exactly how** the inductive Spatio-Temporal GNN and the two flavours of GNN transfer learning are implemented in this repository, and where each design choice sits in the research literature.
 
-This is the implementation-and-mechanism counterpart to [MAIN_REPORT.md](MAIN_REPORT.md) (narrative + diagnosis) and [RESULTS.md](RESULTS.md) (numbers). Bibliography is in [REFERENCES.md](REFERENCES.md).
+This is the implementation-and-mechanism counterpart to [MAIN_REPORT.md](MAIN_REPORT.md) (narrative + diagnosis), [RESULTS.md](RESULTS.md) (numbers), and [AUDIT.md](AUDIT.md) (data-leakage & overfitting audit). Bibliography is in [REFERENCES.md](REFERENCES.md).
 
 ---
 
@@ -792,11 +792,15 @@ Pre-train + fine-tune transfers the **weights** of a source-trained encoder, but
 
 Three diagnosed fixes are bundled behind `--fixed`. The legacy chronological-split numbers stay on disk for direct comparison. These are not architectural changes, but they are essential to make the architecture's headline numbers reproducible and honest.
 
-1. **Interleaved split** ([utils.py:147-163](../src/utils.py#L147-L163)) — every `Nth` timestep goes to val/test rather than the chronological-tail split, so Kolkata/Guwahati's single-year test set spans every season instead of being winter-only. This eliminates the seasonal label-shift artifact that crushed Guwahati's legacy R² to −0.22.
-2. **Climatology residual** ([utils.py:119-144](../src/utils.py#L119-L144)) — fit per-(month, hour) mean PM2.5 on the train mask only, subtract it from `y` before z-scoring. The model predicts **deviations from the seasonal-diurnal expectation**; at inference, climatology is added back ([utils.py:376-387](../src/utils.py#L376-L387)). This is the same residual-target idea used in Yadav et al. (2024) on Delhi PM2.5 across years.
+1. **Interleaved split** ([utils.py:147-163](../src/utils.py#L147-L163)) — every `Nth` timestep goes to val/test rather than the chronological-tail split, so Kolkata/Guwahati's single-year test set spans every season instead of being winter-only. This eliminates the seasonal label-shift artifact that crushed Guwahati's legacy R² to −0.22. **Methodological note:** this is k-fold-style splitting for a forecasting task; it is asymptotically valid for stationary AR processes (Bergmeir, Hyndman & Koo, CSDA 2018) — which the climatology-residual signal approximately is — but inflates absolute R² versus a chronological-block split. See [AUDIT.md §3.2](AUDIT.md) for the full discussion and the chronological-block sensitivity-analysis recommendation.
+2. **Climatology residual** ([utils.py:119-144](../src/utils.py#L119-L144)) — fit per-(month, hour) mean PM2.5 on the train mask only, subtract it from `y` before z-scoring. The model predicts **deviations from the seasonal-diurnal expectation**; at inference, climatology is added back ([utils.py:376-387](../src/utils.py#L376-L387)). This is the same residual-target idea used in Yadav et al. (2024) on Delhi PM2.5 across years. Verified leakage-free in [AUDIT.md §2.4](AUDIT.md).
 3. **Matched GNN recipe** ([train_gnn.py:76-84](../src/train_gnn.py#L76-L84)) — hidden_dim 24 → 64, per-city epochs and LR matched to the LSTM, early stopping with `ReduceLROnPlateau`. Pre-fix, the GNN was hyperparameter-starved relative to the LSTM baseline.
 
-After these fixes, the GAT-GNN source-only and the LSTM-fix source-only are within ≈ 0.04 R² on all three cities ([RESULTS.md §3.1](RESULTS.md)).
+After these fixes, the GAT-GNN source-only and the LSTM-fix source-only are within ≈ 0.04 R² on all three cities ([RESULTS.md §3.1](RESULTS.md)). The mean val−test R² gap across all reported cells is **−0.005** (test slightly above val), indicating no overfitting ([AUDIT.md §5](AUDIT.md)).
+
+### 6.1 In-loader imputation — causal `ffill` only
+
+A causal-imputation fix landed in [utils.py:212-222](../src/utils.py#L212-L222): the in-memory safety-net imputation used to be `.ffill().bfill().fillna(0.0)`; the anticausal `bfill()` step has been removed so that val/test NaNs cannot be filled from future-train observations. The upstream `data_pipeline.py` had already imputed the same cells (so this is a documentation-and-bulletproofing fix, not a results-changing one), but the loader-level fix means that any future re-run of `data_pipeline.py` with a fully causal imputer (recommended in [AUDIT.md §6.2 R-5](AUDIT.md)) will still flow through a leakage-free loader. The fix is documented in [AUDIT.md §2.2](AUDIT.md).
 
 ---
 
@@ -852,4 +856,4 @@ Full bibliography in [REFERENCES.md](REFERENCES.md).
 
 ---
 
-*Companion documents: [MAIN_REPORT.md](MAIN_REPORT.md) (narrative), [RESULTS.md](RESULTS.md) (numbers), [REFERENCES.md](REFERENCES.md) (bibliography), [ResearchProposal.md](ResearchProposal.md) (publication framing).*
+*Companion documents: [MAIN_REPORT.md](MAIN_REPORT.md) (narrative), [RESULTS.md](RESULTS.md) (numbers), [AUDIT.md](AUDIT.md) (data-leakage & overfitting audit), [REFERENCES.md](REFERENCES.md) (bibliography), [ResearchProposal.md](ResearchProposal.md) (publication framing).*

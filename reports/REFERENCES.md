@@ -60,11 +60,19 @@ Hamilton, W. L., Ying, R., & Leskovec, J. (2017). Inductive Representation Learn
 
 Veličković, P., Cucurull, G., Casanova, A., Romero, A., Liò, P., & Bengio, Y. (2018). Graph Attention Networks. In *International Conference on Learning Representations (ICLR)*. (GAT.)
 
-Xu, K., Hu, W., Leskovec, J., & Jegelka, S. (2019). How Powerful are Graph Neural Networks? In *International Conference on Learning Representations (ICLR)*. (GIN.)
+Brody, S., Alon, U., & Yahav, E. (2022). How Attentive are Graph Attention Networks? In *International Conference on Learning Representations (ICLR)*. (GATv2 — diagnoses a static-attention limitation of the original GAT and proposes a swap-then-LeakyReLU fix; relevant motivation for the single-head edge-weighted variant used here.)
+
+Xu, K., Hu, W., Leskovec, J., & Jegelka, S. (2019). How Powerful are Graph Neural Networks? In *International Conference on Learning Representations (ICLR)*. (GIN; basis for the mean⊕max graph-readout in §2.6.)
 
 Kipf, T. N., & Welling, M. (2017). Semi-Supervised Classification with Graph Convolutional Networks. In *International Conference on Learning Representations (ICLR)*.
 
 Hu, W., Liu, B., Gomes, J., Zitnik, M., Liang, P., Pande, V., & Leskovec, J. (2020). Strategies for Pre-training Graph Neural Networks. In *International Conference on Learning Representations (ICLR)*.
+
+Rong, Y., Huang, W., Xu, T., & Huang, J. (2020). DropEdge: Towards Deep Graph Convolutional Networks on Node Classification. In *International Conference on Learning Representations (ICLR)*. (Edge-dropping regularizer; relevant to oversmoothing prevention — not adopted here because the GNN is only 2 layers deep, but cited as a deeper-architecture remedy.)
+
+You, Y., Chen, T., Sui, Y., Chen, T., Wang, Z., & Shen, Y. (2020). Graph Contrastive Learning with Augmentations. In *Advances in Neural Information Processing Systems 33 (NeurIPS-20)*. (GraphCL; complementary self-supervised GNN pre-training approach.)
+
+Bai, S., Kolter, J. Z., & Koltun, V. (2018). An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling. arXiv:1803.01271. (TCN; basis for the dilated 1-D causal conv used in §2.4.)
 
 ---
 
@@ -120,13 +128,19 @@ Lin, L., Chen, J., & Wang, H. (2024). Unleash Graph Neural Networks from Heavy T
 
 ## I. Domain-adversarial foundations
 
-Ganin, Y., & Lempitsky, V. (2015). Unsupervised Domain Adaptation by Backpropagation. In *Proceedings of the 32nd International Conference on Machine Learning (ICML-15)*. (DANN.)
+Ganin, Y., & Lempitsky, V. (2015). Unsupervised Domain Adaptation by Backpropagation. In *Proceedings of the 32nd International Conference on Machine Learning (ICML-15)*. (DANN; gradient-reversal layer that this project's Variant B is built on.)
 
-Ganin, Y., Ustinova, E., Ajakan, H., Germain, P., Larochelle, H., Laviolette, F., Marchand, M., & Lempitsky, V. (2016). Domain-Adversarial Training of Neural Networks. *Journal of Machine Learning Research, 17(59)*, 1–35.
+Ganin, Y., Ustinova, E., Ajakan, H., Germain, P., Larochelle, H., Laviolette, F., Marchand, M., & Lempitsky, V. (2016). Domain-Adversarial Training of Neural Networks. *Journal of Machine Learning Research, 17(59)*, 1–35. (Source for the `λ(p) = 2/(1+exp(−γp))−1` warm-up schedule in [src/models/dann.py:105-108](../src/models/dann.py#L105-L108).)
+
+Tzeng, E., Hoffman, J., Saenko, K., & Darrell, T. (2017). Adversarial Discriminative Domain Adaptation. In *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR-17)*. (ADDA; source for the warm-start-from-supervised-source-pretraining step used in [src/train_gnn_dann.py:207-222](../src/train_gnn_dann.py#L207-L222).)
+
+de Mathelin, A., Atiq, M., Richard, G., de la Concha, A., Yachouti, M., Deheeger, F., Mougeot, M., & Vayatis, N. (2020). Adversarial Weighting for Domain Adaptation in Regression. arXiv:2006.08251. (Diagnoses why naïve DANN often *underperforms* on regression and motivates the α_d ≪ 1 loss reweighting used in [src/train_gnn_dann.py:88-93](../src/train_gnn_dann.py#L88-L93).)
 
 Finn, C., Abbeel, P., & Levine, S. (2017). Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks. In *Proceedings of the 34th International Conference on Machine Learning (ICML-17)*. (MAML.)
 
 Nichol, A., Achiam, J., & Schulman, J. (2018). On First-Order Meta-Learning Algorithms. arXiv:1803.02999. (Reptile.)
+
+Yosinski, J., Clune, J., Bengio, Y., & Lipson, H. (2014). How transferable are features in deep neural networks? In *Advances in Neural Information Processing Systems 27 (NeurIPS-14)*. (Empirical foundation for the freeze-low-layers / fine-tune-high-layers TL recipe used in both Variant A and Variant B's fine-tune phase.)
 
 ---
 
@@ -179,6 +193,20 @@ Yadav, P., Kumar, A., Sharma, V., & Verma, A. (2024). Deep transfer learning and
 Diebold, F. X., & Mariano, R. S. (1995). Comparing Predictive Accuracy. *Journal of Business & Economic Statistics, 13(3)*, 253–263. (DM test, used for the eventual paper's pairwise method comparison.)
 
 Harvey, D., Leybourne, S., & Newbold, P. (1997). Testing the equality of prediction mean squared errors. *International Journal of Forecasting, 13(2)*, 281–291. (Small-sample correction to the DM test.)
+
+---
+
+## P. Time-series cross-validation and data-leakage prevention
+
+Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein, S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F., & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. *Ecography, 40(8)*, 913–929. (Authoritative treatment of how to design CV folds that respect temporal/spatial autocorrelation; motivates the chronological-block control split discussed in [AUDIT.md](AUDIT.md) §3.2.)
+
+Bergmeir, C., & Benítez, J. M. (2012). On the use of cross-validation for time series predictor evaluation. *Information Sciences, 191*, 192–213. (Foundational analysis of why naïve k-fold CV inflates error estimates on autocorrelated time series, and when it is — and isn't — defensible.)
+
+Bergmeir, C., Hyndman, R. J., & Koo, B. (2018). A note on the validity of cross-validation for evaluating autoregressive time series prediction. *Computational Statistics & Data Analysis, 120*, 70–83. (Shows that for stationary AR processes, k-fold CV is asymptotically valid — relevant defence for the interleaved-split protocol used in `--fixed` mode, with caveats discussed in [AUDIT.md](AUDIT.md) §3.2.)
+
+Kaufman, S., Rosset, S., Perlich, C., & Stitelman, O. (2012). Leakage in Data Mining: Formulation, Detection, and Avoidance. *ACM Transactions on Knowledge Discovery from Data, 6(4)*. (Taxonomy of leakage modes — used in [AUDIT.md](AUDIT.md) to categorize each potential leakage source identified in this codebase.)
+
+Cerqueira, V., Torgo, L., & Mozetič, I. (2020). Evaluating time series forecasting models: An empirical study on performance estimation methods. *Machine Learning, 109*, 1997–2028. (Empirical comparison of holdout, k-fold, blocked-k-fold, and rolling-origin CV for time-series forecasting — informs the recommendation block in [AUDIT.md](AUDIT.md) §6.)
 
 ---
 

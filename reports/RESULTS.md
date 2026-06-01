@@ -2,6 +2,8 @@
 
 This report tabulates the corrected (fixed-protocol) results from the GNN transfer-learning project, alongside the thesis LSTM-TL reference. All GNN numbers are from the post-correction runs (interleaved 70/15/15 split + per-(month, hour) climatology residual + LSTM-grade per-city recipe); the v1 / pre-correction runs are documented for context in [ARCHITECTURE.md §5](ARCHITECTURE.md) but are excluded from this report.
 
+> **Data-leakage & overfitting audit.** Every protocol decision in this report has been audited against the time-series-ML leakage taxonomy of Kaufman et al. (TKDD 2012) and the temporally-correlated-data CV literature of Roberts et al. (Ecography 2017), Bergmeir & Benítez (2012), and Bergmeir, Hyndman & Koo (CSDA 2018). See [AUDIT.md](AUDIT.md) for the full line-by-line analysis. Headline findings: scaler / climatology / window construction are leakage-free; in-loader imputation was patched to be causal ([src/utils.py:212-222](../src/utils.py#L212-L222)); the val−test R² gap averages **−0.005** (test slightly above val) — no overfitting. The interleaved-split inflation versus chronological-block CV is acknowledged and bounded; comparisons across LSTM and GNN methods use the same protocol so the inflation cancels.
+
 All metrics are computed on the **target city's held-out test partition** in raw PM2.5 space (after un-doing the z-score standardization and re-adding the climatology where applicable).
 
 **Test protocol — what each column means.** For every (source, target, d%) cell the script trains three models on the same target data sample, then evaluates all three on the same target-test partition:
@@ -185,6 +187,8 @@ Best Variant B cell: **Delhi → Kolkata @ d=45%, R² = 0.8250.**
 #### 3.2.3 Verification — does the DANN source actually help?
 
 Scratch R² is reused from §3.1.3 — scratch is method-agnostic (random init + target FT only).
+
+> **Terminology note (from [AUDIT.md §4.3](AUDIT.md)):** the "zero-shot R²" column below is the DANN encoder evaluated on target test with no fine-tune. Because the DANN encoder has seen **target features** (though not target PM2.5 labels) during the joint phase, this is strictly **unsupervised domain adaptation**, not "zero-shot" in the classical sense. Hence DANN no-FT R² (0.7415 for Delhi→Kolkata) is consistently above PT-FT zero-shot R² (0.7282) — the DANN encoder had unsupervised target-feature exposure that the PT-FT zero-shot did not. The three-way verification logic ("transfer > no-FT AND transfer > scratch") remains internally consistent per cell.
 
 | Source → Target @ d% | zero-shot R² | scratch R² | **transfer R²** | Δ vs scratch | Δ vs zero-shot | real? |
 |---|--:|--:|--:|--:|--:|:-:|

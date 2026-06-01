@@ -208,11 +208,16 @@ def load_city_tensor(
     feature_tensor[ti_arr, si_arr, :] = feat_vals
     target_tensor[ti_arr, si_arr] = tgt_vals
 
-    # Time-domain forward then backward fill per station-feature.
+    # Causal time-domain forward fill per station-feature. `data_pipeline.py`
+    # has already imputed NaNs upstream; this in-memory pass is a safety net.
+    # bfill was removed to eliminate anticausal leakage (val/test NaNs being
+    # filled from future-train observations) — any leading NaNs that survive
+    # the pipeline now get 0 (= mean after z-score, fit on train only below).
+    # See reports/AUDIT.md §2 for the leakage analysis that motivated this.
     for n in range(N):
-        df_n = pd.DataFrame(feature_tensor[:, n, :]).ffill().bfill().fillna(0.0)
+        df_n = pd.DataFrame(feature_tensor[:, n, :]).ffill().fillna(0.0)
         feature_tensor[:, n, :] = df_n.to_numpy(dtype=np.float32)
-        tgt = pd.Series(target_tensor[:, n]).ffill().bfill().fillna(0.0)
+        tgt = pd.Series(target_tensor[:, n]).ffill().fillna(0.0)
         target_tensor[:, n] = tgt.to_numpy(dtype=np.float32)
 
     train_end = pd.Timestamp(metadata["train_end"])
