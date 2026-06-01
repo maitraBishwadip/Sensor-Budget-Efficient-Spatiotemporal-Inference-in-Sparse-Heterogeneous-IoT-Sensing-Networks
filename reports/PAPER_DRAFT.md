@@ -27,17 +27,17 @@ Particulate matter with aerodynamic diameter below 2.5 µm (PM2.5) is the world'
 
 The Continuous Ambient Air Quality Monitoring (CAAQM) network operated by the Central Pollution Control Board (CPCB) provides the only public real-time PM2.5 feed for most Indian cities. Coverage is highly unequal: Delhi has 40 CAAQM stations in a ~50 × 50 km basin, Kolkata has 10 across a coastal-delta region, and Guwahati in the Northeast has only 4 stations in a Brahmaputra-valley pocket (Awasthi, Pandey & Verma, 2023). Many secondary cities have one or none. This long-tailed distribution of monitor density means that any "train a deep model per city" recipe is feasible only for Delhi and a handful of Tier-1 cities, leaving the majority of India under-served by data-driven forecasting.
 
-Transfer learning (TL) is the natural remedy: pre-train a forecasting model on a data-rich source city and adapt it to a data-scarce target with a small fine-tune set. Station-independent LSTM-TL has been shown to achieve substantial R² gains on data-scarce cross-city PM2.5 targets (Sanjeev, Prakash & Maitra, 2025), and comparable TL gains have been reported for ozone forecasting in the Alpine region (Sangiorgio & Guariso, 2024), Delhi PM2.5 across years (Yadav et al., 2024), and crop-yield prediction across the US Corn Belt (Khan, Li & Maimaitijiang, 2024). Cross-city PM2.5 forecasting with TL is, however, structurally different from these settings because the source and target are not the same physical system observed at different times — they are different urban airsheds with different topologies, emission inventories, and meteorological regimes.
+Transfer learning (TL) is the natural remedy: pre-train a forecasting model on a data-rich source city and adapt it to a data-scarce target with a small fine-tune set. As a first solution we adopt a **station-independent LSTM-TL** forecaster — a single recurrent model, shared across all stations, pre-trained on a data-rich source city and fine-tuned on a small slice of the target. This directly attacks the data-scarcity bottleneck: it recovers strong target-city accuracy (R² ≈ 0.81–0.86) from as little as 15 % of the target's data (§7.2), and it transfers cleanly across cities because a station-agnostic model carries no per-city structure. The same recurrent-TL idea has precedent for cross-city PM2.5 (Sanjeev, Prakash & Maitra, 2025) and cross-year Delhi PM2.5 with attention (Yadav et al., 2024), and analogous TL gains have been reported for ozone forecasting in the Alpine region (Sangiorgio & Guariso, 2024) and crop-yield prediction across the US Corn Belt (Khan, Li & Maimaitijiang, 2024). Cross-city PM2.5 forecasting with TL is, however, structurally different from these settings because the source and target are not the same physical system observed at different times — they are different urban airsheds with different topologies, emission inventories, and meteorological regimes.
 
-### 1.3 The architectural limitation of station-independent forecasters
+### 1.3 From LSTM-TL to graph-TL — closing the structural gap
 
-The station-independent LSTM-TL recipe (Sanjeev et al., 2025; Yadav et al., 2024) operates **station-independently**: one sequence-to-sequence forecaster is applied to each monitoring station's time series in isolation, and the predictions are concatenated. This has two consequences that cap how far TL can take us:
+LSTM-TL solves the data-scarcity problem, but it does so **station-independently**: one sequence-to-sequence forecaster is applied to each monitoring station's time series in isolation, and the predictions are concatenated. Two consequences cap how far it can take us:
 
-(i) **Spatial coupling is ignored.** PM2.5 transports along wind corridors and forms regional plumes whose spatial structure (Wang et al., 2020 PM2.5-GNN) carries genuine predictive signal. Station-independent LSTMs cannot exploit it.
+(i) **Spatial coupling is ignored.** PM2.5 transports along wind corridors and forms regional plumes whose spatial structure (Wang et al., 2020 PM2.5-GNN) carries genuine predictive signal. A station-independent LSTM cannot exploit it.
 
-(ii) **The trained weights have no canonical reuse across cities of different sizes.** A "model" in the LSTM-TL paradigm is the average across `|V|` per-station forecasters; transferring the LSTM weights is conceptually clean but the per-station predictions then have to be re-aggregated using only the target city's spatial information, with no learned spatial operator.
+(ii) **The trained weights have no canonical reuse across cities of different sizes.** A "model" in the LSTM-TL paradigm is the bundle of per-station forecasters; transferring the weights is conceptually clean, but there is no *learned spatial operator* — the cross-station structure that differs between a 40-station and a 4-station city is never modelled.
 
-Graph neural networks (GNNs) for spatio-temporal forecasting (Yu, Yin & Zhu, 2018; Wu et al., 2019; Wu et al., 2020) directly address (i) by treating the monitoring network as a graph and learning a single spatial operator that propagates information along edges. To address (ii) we require a specifically **inductive** GNN whose parameter count does not depend on `|V|` — GraphSAGE (Hamilton, Ying & Leskovec, 2017) and GAT (Veličković et al., 2018) satisfy this, transductive GCNs (Kipf & Welling, 2017) and adaptive-adjacency models like Graph WaveNet (Wu et al., 2019) and AGCRN (Bai et al., 2020) do not. The theoretical basis for cross-`|V|` transfer of such inductive operators is the graphon-transferability result of Ruiz, Chamon & Ribeiro (2020) and the spectral transferability analysis of Levie et al. (2021).
+We therefore go one step further with a **graph transfer-learning** framework that keeps everything LSTM-TL achieved and additionally closes both gaps. Graph neural networks (GNNs) for spatio-temporal forecasting (Yu, Yin & Zhu, 2018; Wu et al., 2019; Wu et al., 2020) address (i) by treating the monitoring network as a graph and learning a single spatial operator that propagates information along edges. To address (ii) we use a specifically **inductive** GNN whose parameter count does not depend on `|V|` — GraphSAGE (Hamilton, Ying & Leskovec, 2017) and GAT (Veličković et al., 2018) satisfy this; transductive GCNs (Kipf & Welling, 2017) and adaptive-adjacency models like Graph WaveNet (Wu et al., 2019) and AGCRN (Bai et al., 2020) do not. The theoretical basis for cross-`|V|` transfer of such inductive operators is the graphon-transferability result of Ruiz, Chamon & Ribeiro (2020) and the spectral transferability analysis of Levie et al. (2021). The result is a single encoder that, like the station-agnostic LSTM, carries no per-city structure — but that *also* learns how stations couple, and transfers that operator verbatim from a 40-station city to a 4-station one.
 
 ### 1.4 Why naïve "transfer the weights" can fail — and what fixes it
 
@@ -57,7 +57,7 @@ Set against the cross-city spatio-temporal TL literature (RegionTrans, Wang et a
 
 **C5. Reproducible CPU-only code release.** No PyTorch Geometric or compiled extensions; the full 24-cell verification grid for each stage completes in ~2.5 hours on 8 vCPU / 16 GB / no GPU.
 
-The remainder of the paper is organized as follows. §2 surveys related work. §3 formalizes the problem and describes the data. §4 details the inductive ST-GNN encoder; §5 the two transfer strategies. §6 specifies the experimental protocol including the audit; §7 reports results across the 24-cell grid. §8 discusses implications, limitations, and threats to validity. §9 concludes.
+The remainder of the paper is organized as follows. §2 surveys related work. §3 formalizes the problem and describes the data. §4 details the two forecasters — the station-independent LSTM-TL model and the inductive ST-GNN encoder; §5 the cross-city transfer strategies. §6 specifies the experimental protocol including the audit; §7 reports results across the 24-cell grid. §8 discusses implications, limitations, and threats to validity. §9 concludes.
 
 > *Figure 1 (placeholder) — Motivation diagram. Panel A: data-scarcity story (CPCB station counts across India, Delhi/Kolkata/Guwahati highlighted). Panel B: station-independent LSTM-TL closes part of the gap but ignores spatial coupling. Panel C: the inductive GNN-TL exploits spatial coupling and transfers across heterogeneous topologies.*
 
@@ -158,11 +158,48 @@ Table 3 collects symbols used in the methodology.
 
 ---
 
-## 4. Inductive spatio-temporal GNN encoder
+## 4. Forecasting models
 
-### 4.1 Overview
+We study two forecasters for the task of §3.2, presented in the order in which they build on one another. Both realize `f_θ` with a parameter count independent of `N_c`, so the same `θ` transfers across the three cities. §4.0 specifies the station-independent **LSTM-TL** model — the first solution, which solves data scarcity but ignores spatial structure. §4.1–4.4 specify the **inductive ST-GNN** that additionally learns a spatial operator and closes the structural gap of §1.3.
+
+### 4.0 The first forecaster: station-independent LSTM-TL
+
+**Idea.** Treat every monitoring station as an independent univariate problem. A single recurrent network — *shared across all stations* — reads a station's last 24 hours of features and predicts its next value. Because the same weights are applied to each station and nothing in the model refers to a station's identity or to how many stations a city has, the trained network can be moved to a new city simply by running it on that city's stations. This is what makes it a clean transfer-learning model; it is also why it cannot represent any coupling *between* stations.
+
+**Architecture.** A 2-layer LSTM (Hochreiter & Schmidhuber, 1997) with hidden size `d = 64` and inter-layer dropout 0.2, followed by a two-layer fully-connected head. For one station the input is its history matrix `x_{1:H} ∈ ℝ^{H × F}` (`H = 8`, `F = 14`); the LSTM consumes it step by step,
+
+```
+i_t = σ(W_i[h_{t-1}, x_t] + b_i)        f_t = σ(W_f[h_{t-1}, x_t] + b_f)
+o_t = σ(W_o[h_{t-1}, x_t] + b_o)        g_t = tanh(W_g[h_{t-1}, x_t] + b_g)
+c_t = f_t ⊙ c_{t-1} + i_t ⊙ g_t         h_t = o_t ⊙ tanh(c_t)
+```
+
+and the final hidden state is mapped to the one-step PM2.5 prediction by `ŷ = W_2 · ReLU(W_1 h_H)`. The gates `(i,f,o)` let the cell retain or forget information over the 24-hour window — the mechanism that captures local persistence and recent trend. Parameter count ≈ 50 k, independent of `N_c`. A city's `N_c` predictions are obtained by running this identical network on each of its `N_c` stations.
+
+**Transfer recipe.** LSTM-TL uses the same two-step cross-city recipe as the GNN (§5.1–5.2), minus the graph: (i) **pre-train** the LSTM on the source city's full training partition; (ii) **fine-tune** the pre-trained weights on a `d %` slice of the target city's training data, early-stopping on the target's own validation set, and evaluate on the target's held-out test set. There is no graph, no adversarial phase, and no `|V|`-dependent component, so the LSTM-TL pipeline is exactly Stage 0 + Stage 1 of §5 with the GNN encoder replaced by the LSTM. All LSTM-TL numbers reported in this paper come from this pipeline under the `--fixed` protocol of §6.
+
+**What it solves and what it leaves open.** LSTM-TL directly addresses data scarcity: a target city with very few labelled windows inherits a strong temporal forecaster from the source (§7.2). What it cannot do is exploit the spatial coupling between stations (§1.3-i) or learn an operator over the monitoring graph that is reused across cities (§1.3-ii). Those are precisely the gaps the ST-GNN below closes.
+
+### 4.1 The second forecaster: inductive ST-GNN encoder — overview
 
 The encoder `f_θ` is a four-block stack `TCN → GAT ×2 → TCN → Linear` in the family of STGCN (Yu, Yin & Zhu, 2018), Graph WaveNet (Wu et al., 2019), and MTGNN (Wu et al., 2020), kept deliberately small (~25 k parameters) for CPU compute. The defining property is **inductivity**: no learnable parameter has a shape that depends on `N_c`. This makes Stage 1 (load source weights into a target-instantiated encoder, fine-tune) mechanically possible and Stage 2 (a single discriminator over pooled embeddings from cities with different `N`) well-defined.
+
+Intuitively the encoder interleaves two operations: a **temporal** step that, per station, summarizes the recent hours into a trend (rising / falling / spiking), and a **spatial** step that lets each station refine its state using a *learned weighted average* of its neighbours — heavily weighting an upwind or well-correlated neighbour, down-weighting a disconnected one. Stacking time → space → time answers "given the recent local trend *and* what the relevant neighbours are doing, what comes next?" The exact forward pass, with tensor shapes, is:
+
+```
+Input  X            [B, H, N, F]                       # batch, history, nodes, features
+  → TemporalConv₁    [B, H, N, d_hidden]               # per-node causal conv, dilation 1
+  → reshape          [B·H, N, d_hidden]                # treat each timestep as one graph
+  → GATLayer₁ → ELU  [B·H, N, d_gat]                   # spatial attention message-passing
+  → GATLayer₂ → ELU  [B·H, N, d_gat]
+  → reshape          [B, H, N, d_gat]
+  → TemporalConv₂    [B, H, N, d_hidden]               # dilation 2
+  → LayerNorm
+  → last timestep    [B, N, d_hidden]
+  → Linear head      [B, N]                            # next-step PM2.5 per station
+```
+
+None of these blocks has a parameter whose shape depends on `N` (proved in §4.4), so the same trained encoder runs verbatim on `N = 40`, `10`, or `4`.
 
 > *Figure 2 (placeholder) — Side-by-side schematic of the three city graphs (Delhi 40-node, Kolkata 10-node, Guwahati 4-node) annotated with their station-degree distribution and the same encoder operating on all three.*
 
@@ -219,15 +256,15 @@ The same checkpoint thus loads onto Delhi's 40-station graph and Guwahati's 4-st
 
 ## 5. Cross-city transfer
 
-We consider two transfer strategies that share the same source-only pre-training and diverge in how they adapt to the target.
+This section specifies how a model trained on a source city is adapted to a data-scarce target. Stage 0 (pre-training) and Stage 1 (PT-FT) apply to **both** forecasters — for the LSTM-TL model, "encoder" below simply reads "LSTM" and every graph/`|V|`-dependent step is absent. Stage 2 (Graph-DANN) is GNN-only, since it operates on a graph-pooled embedding the LSTM does not produce.
 
-### 5.1 Stage 0 — source-only pre-training
+### 5.1 Stage 0 — source-only pre-training (both models)
 
-For each city `c`, the encoder is trained on `c`'s full training partition with mean-squared-error loss in z-scored climatology-residual space (§6.5.3). Adam optimizer, weight decay 10⁻⁵, gradient clipping at norm 1, `ReduceLROnPlateau` scheduling on validation R², and best-by-val checkpointing. Per-city hyperparameters mirror the LSTM baseline (Table 11).
+For each city `c`, the model is trained on `c`'s full training partition with mean-squared-error loss in z-scored climatology-residual space (§6.5.3). Adam optimizer, weight decay 10⁻⁵, gradient clipping at norm 1, `ReduceLROnPlateau` scheduling on validation R², and best-by-val checkpointing. This yields one source checkpoint per city, which both transfer stages start from. Per-city hyperparameters are in Table 6.
 
 ### 5.2 Stage 1 — Pre-train + Fine-tune (PT-FT)
 
-The source-pretrained encoder is loaded into a target-instantiated GAT-GNN; the input TemporalConv `t1` is frozen for the first 20 % of fine-tune epochs (following Yosinski et al., 2014 and the frozen-low-layers convention) and then unfrozen for the remainder. Fine-tuning uses `d %` of the target training windows with `d ∈ {15, 30, 45, 60 %}`, per-target learning rate / batch / patience (Table 11), and best-by-val checkpointing.
+The source-pretrained encoder is loaded into a target-instantiated GAT-GNN; the input TemporalConv `t1` is frozen for the first 20 % of fine-tune epochs (following Yosinski et al., 2014 and the frozen-low-layers convention) and then unfrozen for the remainder. Fine-tuning uses `d %` of the target training windows with `d ∈ {15, 30, 45, 60 %}`, per-target learning rate / batch / patience (Table 6), and best-by-val checkpointing. (For LSTM-TL the same recipe runs with `t1`-freezing omitted, since the LSTM has no temporal-conv block.)
 
 ### 5.3 The three-way verification protocol
 
@@ -275,7 +312,7 @@ PT-FT transfers **weights** of a source-trained encoder; those weights still enc
 
 ### 5.5.5 Seven stabilization fixes from the v1 → v2 transition
 
-An earlier (v1) implementation collapsed to negative R² on all three source-target pairs. Diagnosis (documented in our diagnostic report) traced the failure to seven mechanisms and the following literature-grounded fixes:
+An earlier (v1) implementation collapsed to negative R² on all three source-target pairs. Diagnosis (detailed in the supplementary material) traced the failure to seven mechanisms and the following literature-grounded fixes:
 
 1. **Source-only warm-start** (Tzeng et al., 2017 ADDA). Load the source-pretrained encoder instead of random init.
 2. **Discriminator loss reweighting** (de Mathelin et al., 2020). `α_d = 0.1` brings the 3-way CE losses (≈ 3·ln 3 = 3.3 at chance) to comparable magnitude with the MSE (≈ 0.4 z-scored).
@@ -295,7 +332,7 @@ The `--fixed` protocol uses a deterministic **interleaved 70/15/15 split**: ever
 
 ### 6.2 Baselines
 
-The baseline reported in §7 is **B-LSTM-fixed**: a station-independent LSTM trained under our `--fixed` protocol (interleaved split, climatology residual, per-city LSTM-grade hyperparameters), reported in [RESULTS.md](RESULTS.md) §2. This is the apples-to-apples LSTM comparator for the GNN — same data, same protocol, same per-city recipe — so any protocol effect cancels at comparison time.
+The baseline reported in §7 is our **station-independent LSTM-TL** trained under the same `--fixed` protocol as the GNN (interleaved split, climatology residual, per-city LSTM-grade hyperparameters; full grid in Table 9). It is the apples-to-apples comparator for the GNN — same data, same protocol, same per-city recipe — so any protocol effect cancels at comparison time. All LSTM-TL numbers in this paper are from our own experiments under this protocol.
 
 Per-cell ablations within each stage are: **zero-shot** (load source weights, no FT) and **scratch** (random init, FT only). See §5.3.
 
@@ -326,11 +363,11 @@ Per-cell metrics: R², MAE, RMSE, MAPE computed in raw µg m⁻³ space after in
 
 ### 6.5 Data-leakage and overfitting audit
 
-The full audit is in our [AUDIT.md](AUDIT.md) companion document; here we summarize the design decisions that make the reported numbers trustworthy. We follow the leakage taxonomy of Kaufman et al. (2012) and the temporally-correlated-data CV literature of Roberts et al. (2017), Bergmeir & Benítez (2012), and Bergmeir, Hyndman & Koo (2018).
+The full line-by-line audit is provided as supplementary material; here we summarize the design decisions that make the reported numbers trustworthy. We follow the leakage taxonomy of Kaufman et al. (2012) and the temporally-correlated-data CV literature of Roberts et al. (2017), Bergmeir & Benítez (2012), and Bergmeir, Hyndman & Koo (2018).
 
-**6.5.1 Pre-processing imputation.** Per-station forward-then-backward fill followed by per-station mean and global mean fallback in [src/data_pipeline.py](../src/data_pipeline.py). The bfill step is anticausal; the global-mean fill uses cross-split statistics. On the CPCB feeds the residual NaN rate is < 0.5 % for PM2.5 and < 2 % for met variables after the prior IDW + Kalman smoothing, so the bias is below the 4th decimal of any reported R² (Kaufman et al., 2012 §3.1 "weak leak"). This is a documented limitation; the recommended fix (causal-only imputation with train-period statistics) is non-blocking.
+**6.5.1 Pre-processing imputation.** Per-station forward-then-backward fill followed by per-station mean and global mean fallback in the pre-processing pipeline. The bfill step is anticausal; the global-mean fill uses cross-split statistics. On the CPCB feeds the residual NaN rate is < 0.5 % for PM2.5 and < 2 % for met variables after the prior IDW + Kalman smoothing, so the bias is below the 4th decimal of any reported R² (Kaufman et al., 2012 §3.1 "weak leak"). This is a documented limitation; the recommended fix (causal-only imputation with train-period statistics) is non-blocking.
 
-**6.5.2 In-loader imputation (patched).** A secondary in-memory imputation in [src/utils.py](../src/utils.py) was patched from `.ffill().bfill().fillna(0.0)` to `.ffill().fillna(0.0)` to eliminate the anticausal `bfill`. On the pre-imputed dataset the change is empirically a no-op: a controlled re-run produced bit-identical test metrics and bit-identical encoder weights (max `|Δw|` = 0.0e+00 across all 23 745 parameters).
+**6.5.2 In-loader imputation (patched).** A secondary in-memory imputation in the data loader was patched from `.ffill().bfill().fillna(0.0)` to `.ffill().fillna(0.0)` to eliminate the anticausal `bfill`. On the pre-imputed dataset the change is empirically a no-op: a controlled re-run produced bit-identical test metrics and bit-identical encoder weights (max `|Δw|` = 0.0e+00 across all 23 745 parameters).
 
 **6.5.3 Scaler and climatology fitting.** The `StandardScaler` and the per-(month, hour) PM2.5 climatology are both fit on `train_mask` only and then `transform`-ed across all splits. Verified leakage-free.
 
@@ -389,7 +426,7 @@ Table 9 reports the LSTM-TL full grid under the `--fixed` protocol. This is the 
 
 ### 7.3 Stage 1 — PT-FT GNN-TL (full grid + verification)
 
-Table 10 reports the Stage 1 transfer R² across the full 24-cell grid. Table 11 reports the three-way verification at `d = 30 %` (selected as the headline column; full per-cell verification is in [RESULTS.md §3.1.3](RESULTS.md)).
+Table 10 reports the Stage 1 transfer R² across the full 24-cell grid. Table 11 reports the three-way verification at `d = 30 %` (selected as the headline column; the full per-cell verification is in Appendix A, Table A1).
 
 **Table 10. Stage 1 (PT-FT) transfer R² — full grid.**
 
@@ -415,7 +452,7 @@ Best Stage 1 cell: **Delhi → Guwahati @ d = 45 %, R² = 0.8273**.
 | Guwahati → Delhi    | 0.6317 | 0.7905 | 0.8030 | +0.013 | +0.171 | ✓ |
 | Guwahati → Kolkata  | 0.6980 | 0.7803 | 0.8085 | +0.028 | +0.110 | ✓ |
 
-All six cells pass; full 24-cell verification (24/24 pass; mean gain over scratch +0.022 R²) is in [RESULTS.md §3.1.3](RESULTS.md).
+All six cells pass; the full 24-cell verification (24/24 pass; mean gain over scratch +0.022 R²) is in Appendix A, Table A1.
 
 > *Figure 5 (placeholder) — Stage 1 transfer R² heatmap (6 source-target pairs × 4 `d %` values) with the zero-shot and scratch baselines overlaid as a small-multiples panel; annotate cells that fail the "real transfer" test (none).*
 
@@ -447,11 +484,11 @@ Best Stage 2 cell: **Delhi → Kolkata @ d = 45 %, R² = 0.8250**.
 | Guwahati → Delhi    | 0.6280 | 0.7905 | 0.8029 | +0.012 | +0.175 | ✓ |
 | Guwahati → Kolkata  | 0.7084 | 0.7803 | 0.8039 | +0.024 | +0.096 | ✓ |
 
-Five of six cells pass at `d = 30 %`; full 24-cell verification (23/24 pass; the lone tie is Kolkata→Guwahati @ 30 %, within 0.001 R² of scratch) is in [RESULTS.md §3.2.3](RESULTS.md).
+Five of six cells pass at `d = 30 %`; the full 24-cell verification (23/24 pass; the lone tie is Kolkata→Guwahati @ 30 %, within 0.001 R² of scratch) is in Appendix A, Table A2.
 
 ### 7.5 Head-to-head: Stage 1 vs Stage 2
 
-Table 14 compares the two stages cell-by-cell at the headline `d = 30 %` column. Full 24-cell head-to-head is in [RESULTS.md §4](RESULTS.md).
+Table 14 compares the two stages cell-by-cell at the headline `d = 30 %` column. The full 24-cell head-to-head is in Appendix A, Table A3.
 
 **Table 14. Stage 1 vs Stage 2 head-to-head @ d = 30 %.**
 
@@ -487,7 +524,7 @@ LSTM-fixed is the strongest single-shot transferer in absolute R², but the GNN 
 
 ### 7.7 Sensitivity of Stage 2 stabilization fixes (ablation summary)
 
-A controlled ablation of the seven stabilization fixes (§5.5.5) is described in our diagnostic report. The v1 → v2 swing magnitude is in Table 16; without any single fix the joint phase trended to negative R² on at least one source-target pair.
+A controlled ablation of the seven stabilization fixes (§5.5.5) is provided in the supplementary material. The v1 → v2 swing magnitude is in Table 16; without any single fix the joint phase trended to negative R² on at least one source-target pair.
 
 **Table 16. Ablation of Graph-DANN stabilization fixes (best test R², averaged over the three priority cells Delhi→Kolkata, Delhi→Guwahati, Kolkata→Guwahati @ d = 30 %; v1 = no stabilization, v2 = all 7 fixes).**
 
@@ -519,7 +556,7 @@ What Stage 2 *does* contribute, that Stage 1 does not, is an **explicitly city-i
 
 ### 8.2 The "DANN zero-shot" naming caveat
 
-The R²_no-FT column in Table 13 is what the cross-city ST-DA literature commonly labels "zero-shot", but in the DANN setting it is more precisely **unsupervised domain adaptation** — the encoder has seen target features during the joint phase (target labels were withheld). True zero-shot in the PT-FT sense (Table 11) is consistently lower (0.7282 vs 0.7415 for Delhi → Kolkata, etc.), and the difference 0.0133 R² is a measure of how much *unsupervised target-feature exposure* alone buys before any labelled fine-tune. We retain the terminology distinction in our companion documents and recommend it for the literature.
+The R²_no-FT column in Table 13 is what the cross-city ST-DA literature commonly labels "zero-shot", but in the DANN setting it is more precisely **unsupervised domain adaptation** — the encoder has seen target features during the joint phase (target labels were withheld). True zero-shot in the PT-FT sense (Table 11) is consistently lower (0.7282 vs 0.7415 for Delhi → Kolkata, etc.), and the difference 0.0133 R² is a measure of how much *unsupervised target-feature exposure* alone buys before any labelled fine-tune. We retain this terminology distinction throughout and recommend it for the literature.
 
 ### 8.3 Why interleaved-split results are still trustworthy (and the recommended sensitivity analysis)
 
@@ -607,7 +644,7 @@ The authors declare no competing interests.
 
 ## References
 
-The complete bibliography is in our [REFERENCES.md](REFERENCES.md) companion document, organized by topic (A. TL for environmental / cross-city time series; B. ST-GNN backbones; C. Air-quality GNNs; D. Inductive GNN & pre-training; E. GNN domain adaptation; F. Cross-city ST-transfer; G. Temporal distribution adaptation; H. Graph normalization; I. Domain-adversarial foundations; J. Surveys; K. Air-quality policy & Indian context; L. PM2.5 with distribution shift; M. Deep TL for PM2.5 in India; N. Statistical testing; O. WHO standards; P. Time-series CV & leakage prevention). Citations used in this manuscript are listed below in alphabetical order.
+The references cited in this manuscript are listed below in alphabetical order.
 
 - Awasthi, A., Pandey, S. K., & Verma, V. (2023). *Atmospheric Environment, 314*, 120103.
 - Bai, L., Yao, L., Li, C., Wang, X., & Wang, C. (2020). AGCRN. *NeurIPS-20*.
@@ -627,6 +664,7 @@ The complete bibliography is in our [REFERENCES.md](REFERENCES.md) companion doc
 - Han, J., Yang, S., Wang, Q., Zhou, J., & Lin, Y. (2021). PM2.5-GLB. *NeurIPS-21 GLB Workshop*.
 - Harvey, D., Leybourne, S., & Newbold, P. (1997). *International Journal of Forecasting, 13(2)*.
 - HEI — Health Effects Institute. (2024). *State of Global Air 2024 Report*.
+- Hochreiter, S., & Schmidhuber, J. (1997). Long Short-Term Memory. *Neural Computation, 9(8)*, 1735–1780.
 - Hu, W., Liu, B., Gomes, J., et al. (2020). Strategies for Pre-training GNNs. *ICLR-20*.
 - IQAir. (2024). *2023 World Air Quality Report*.
 - Jin, Y., Chen, K., & Yang, Q. (2022). CrossTReS. *KDD-22*.
@@ -660,6 +698,104 @@ The complete bibliography is in our [REFERENCES.md](REFERENCES.md) companion doc
 - You, Y., Chen, T., Sui, Y., et al. (2020). GraphCL. *NeurIPS-20*.
 - Yu, B., Yin, H., & Zhu, Z. (2018). STGCN. *IJCAI-18*.
 - Zhu, Q., Yang, C., Xu, Y., et al. (2021). EGI. *NeurIPS-21*.
+
+---
+
+## Appendix A. Full per-cell results
+
+All values are test-partition R² in raw PM2.5 space under the `--fixed` protocol; the 24-cell grid is 6 ordered (source, target) pairs × 4 target fractions `d`. "Real?" marks `R²_transfer > max(R²_zero-shot/no-FT, R²_scratch)`. Scratch R² is method-agnostic (random init + target fine-tune only) and is therefore shared between the two stages.
+
+**Table A1. Stage 1 (PT-FT) three-way verification — all 24 cells.**
+
+| Source → Target @ d% | zero-shot | scratch | **transfer** | Δ vs scratch | Δ vs zero-shot | Real? |
+|---|--:|--:|--:|--:|--:|:-:|
+| Delhi → Kolkata @15   | 0.7282 | 0.7576 | **0.8113** | +0.0537 | +0.0831 | ✓ |
+| Delhi → Kolkata @30   | 0.7282 | 0.7803 | **0.8158** | +0.0355 | +0.0875 | ✓ |
+| Delhi → Kolkata @45   | 0.7282 | 0.7925 | **0.8182** | +0.0256 | +0.0900 | ✓ |
+| Delhi → Kolkata @60   | 0.7282 | 0.8031 | **0.8166** | +0.0134 | +0.0883 | ✓ |
+| Delhi → Guwahati @15  | 0.6841 | 0.7756 | **0.8233** | +0.0477 | +0.1392 | ✓ |
+| Delhi → Guwahati @30  | 0.6841 | 0.7826 | **0.8165** | +0.0339 | +0.1323 | ✓ |
+| Delhi → Guwahati @45  | 0.6841 | 0.7887 | **0.8273** | +0.0386 | +0.1432 | ✓ |
+| Delhi → Guwahati @60  | 0.6841 | 0.8083 | **0.8220** | +0.0137 | +0.1378 | ✓ |
+| Kolkata → Delhi @15   | 0.6032 | 0.7635 | **0.7953** | +0.0317 | +0.1921 | ✓ |
+| Kolkata → Delhi @30   | 0.6032 | 0.7905 | **0.8085** | +0.0180 | +0.2053 | ✓ |
+| Kolkata → Delhi @45   | 0.6032 | 0.7989 | **0.8198** | +0.0209 | +0.2166 | ✓ |
+| Kolkata → Delhi @60   | 0.6032 | 0.8105 | **0.8225** | +0.0120 | +0.2193 | ✓ |
+| Kolkata → Guwahati @15| 0.6698 | 0.7807 | **0.7955** | +0.0148 | +0.1256 | ✓ |
+| Kolkata → Guwahati @30| 0.6698 | 0.7924 | **0.8044** | +0.0120 | +0.1346 | ✓ |
+| Kolkata → Guwahati @45| 0.6698 | 0.7970 | **0.8038** | +0.0068 | +0.1340 | ✓ |
+| Kolkata → Guwahati @60| 0.6698 | 0.7981 | **0.8157** | +0.0176 | +0.1458 | ✓ |
+| Guwahati → Delhi @15  | 0.6317 | 0.7635 | **0.7887** | +0.0251 | +0.1570 | ✓ |
+| Guwahati → Delhi @30  | 0.6317 | 0.7905 | **0.8030** | +0.0125 | +0.1713 | ✓ |
+| Guwahati → Delhi @45  | 0.6317 | 0.7989 | **0.8123** | +0.0134 | +0.1806 | ✓ |
+| Guwahati → Delhi @60  | 0.6317 | 0.8105 | **0.8173** | +0.0069 | +0.1857 | ✓ |
+| Guwahati → Kolkata @15| 0.6980 | 0.7576 | **0.7951** | +0.0375 | +0.0971 | ✓ |
+| Guwahati → Kolkata @30| 0.6980 | 0.7803 | **0.8085** | +0.0283 | +0.1105 | ✓ |
+| Guwahati → Kolkata @45| 0.6980 | 0.7925 | **0.8103** | +0.0177 | +0.1123 | ✓ |
+| Guwahati → Kolkata @60| 0.6980 | 0.8031 | **0.8177** | +0.0146 | +0.1198 | ✓ |
+
+**Stage 1: 24/24 cells pass; mean gain over scratch +0.0223 R².**
+
+**Table A2. Stage 2 (Graph-DANN) three-way verification — all 24 cells.** The "no-FT" column is the DANN encoder evaluated on target test with no fine-tune; because it has seen target *features* (not labels) in the joint phase this is unsupervised domain adaptation, not classical zero-shot (§8.2).
+
+| Source → Target @ d% | no-FT | scratch | **transfer** | Δ vs scratch | Δ vs no-FT | Real? |
+|---|--:|--:|--:|--:|--:|:-:|
+| Delhi → Kolkata @15   | 0.7415 | 0.7576 | **0.8170** | +0.0594 | +0.0755 | ✓ |
+| Delhi → Kolkata @30   | 0.7415 | 0.7803 | **0.8171** | +0.0368 | +0.0756 | ✓ |
+| Delhi → Kolkata @45   | 0.7415 | 0.7925 | **0.8250** | +0.0325 | +0.0835 | ✓ |
+| Delhi → Kolkata @60   | 0.7415 | 0.8031 | **0.8180** | +0.0149 | +0.0765 | ✓ |
+| Delhi → Guwahati @15  | 0.7146 | 0.7756 | **0.8130** | +0.0374 | +0.0984 | ✓ |
+| Delhi → Guwahati @30  | 0.7146 | 0.7826 | **0.8131** | +0.0305 | +0.0985 | ✓ |
+| Delhi → Guwahati @45  | 0.7146 | 0.7887 | **0.8230** | +0.0343 | +0.1084 | ✓ |
+| Delhi → Guwahati @60  | 0.7146 | 0.8083 | **0.8221** | +0.0138 | +0.1075 | ✓ |
+| Kolkata → Delhi @15   | 0.6122 | 0.7635 | **0.7957** | +0.0322 | +0.1835 | ✓ |
+| Kolkata → Delhi @30   | 0.6122 | 0.7905 | **0.8087** | +0.0182 | +0.1965 | ✓ |
+| Kolkata → Delhi @45   | 0.6122 | 0.7989 | **0.8203** | +0.0214 | +0.2081 | ✓ |
+| Kolkata → Delhi @60   | 0.6122 | 0.8105 | **0.8215** | +0.0110 | +0.2093 | ✓ |
+| Kolkata → Guwahati @15| 0.6930 | 0.7807 | **0.7985** | +0.0178 | +0.1055 | ✓ |
+| Kolkata → Guwahati @30| 0.6930 | 0.7924 | **0.7916** | −0.0008 | +0.0986 | ≈ tie |
+| Kolkata → Guwahati @45| 0.6930 | 0.7970 | **0.8055** | +0.0086 | +0.1125 | ✓ |
+| Kolkata → Guwahati @60| 0.6930 | 0.7981 | **0.8155** | +0.0173 | +0.1225 | ✓ |
+| Guwahati → Delhi @15  | 0.6280 | 0.7635 | **0.7886** | +0.0251 | +0.1606 | ✓ |
+| Guwahati → Delhi @30  | 0.6280 | 0.7905 | **0.8029** | +0.0124 | +0.1749 | ✓ |
+| Guwahati → Delhi @45  | 0.6280 | 0.7989 | **0.8114** | +0.0125 | +0.1834 | ✓ |
+| Guwahati → Delhi @60  | 0.6280 | 0.8105 | **0.8145** | +0.0040 | +0.1865 | ✓ |
+| Guwahati → Kolkata @15| 0.7084 | 0.7576 | **0.7941** | +0.0365 | +0.0857 | ✓ |
+| Guwahati → Kolkata @30| 0.7084 | 0.7803 | **0.8039** | +0.0236 | +0.0955 | ✓ |
+| Guwahati → Kolkata @45| 0.7084 | 0.7925 | **0.8084** | +0.0159 | +0.1000 | ✓ |
+| Guwahati → Kolkata @60| 0.7084 | 0.8031 | **0.8174** | +0.0143 | +0.1090 | ✓ |
+
+**Stage 2: 23/24 cells pass; mean gain over scratch +0.0210 R². The lone tie (Kolkata→Guwahati @30) is within 0.001 R² of scratch.**
+
+**Table A3. Stage 1 vs Stage 2 head-to-head — all 24 cells (transfer R²).**
+
+| Source → Target @ d% | Stage 1 | Stage 2 | Δ (S2 − S1) | Winner |
+|---|--:|--:|--:|:-:|
+| Delhi → Kolkata @15   | 0.8113 | **0.8170** | +0.0057 | S2 |
+| Delhi → Kolkata @30   | 0.8158 | **0.8171** | +0.0013 | S2 |
+| Delhi → Kolkata @45   | 0.8182 | **0.8250** | +0.0068 | S2 |
+| Delhi → Kolkata @60   | 0.8166 | **0.8180** | +0.0014 | S2 |
+| Delhi → Guwahati @15  | **0.8233** | 0.8130 | −0.0103 | S1 |
+| Delhi → Guwahati @30  | **0.8165** | 0.8131 | −0.0034 | S1 |
+| Delhi → Guwahati @45  | **0.8273** | 0.8230 | −0.0043 | S1 |
+| Delhi → Guwahati @60  | 0.8220 | **0.8221** | +0.0001 | S2 |
+| Kolkata → Delhi @15   | 0.7953 | **0.7957** | +0.0004 | S2 |
+| Kolkata → Delhi @30   | 0.8085 | **0.8087** | +0.0002 | S2 |
+| Kolkata → Delhi @45   | 0.8198 | **0.8203** | +0.0005 | S2 |
+| Kolkata → Delhi @60   | **0.8225** | 0.8215 | −0.0010 | S1 |
+| Kolkata → Guwahati @15| 0.7955 | **0.7985** | +0.0030 | S2 |
+| Kolkata → Guwahati @30| **0.8044** | 0.7916 | −0.0128 | S1 |
+| Kolkata → Guwahati @45| 0.8038 | **0.8055** | +0.0017 | S2 |
+| Kolkata → Guwahati @60| **0.8157** | 0.8155 | −0.0002 | S1 |
+| Guwahati → Delhi @15  | **0.7887** | 0.7886 | −0.0001 | S1 |
+| Guwahati → Delhi @30  | **0.8030** | 0.8029 | −0.0001 | S1 |
+| Guwahati → Delhi @45  | **0.8123** | 0.8114 | −0.0009 | S1 |
+| Guwahati → Delhi @60  | **0.8173** | 0.8145 | −0.0028 | S1 |
+| Guwahati → Kolkata @15| **0.7951** | 0.7941 | −0.0010 | S1 |
+| Guwahati → Kolkata @30| **0.8085** | 0.8039 | −0.0046 | S1 |
+| Guwahati → Kolkata @45| **0.8103** | 0.8084 | −0.0019 | S1 |
+| Guwahati → Kolkata @60| **0.8177** | 0.8174 | −0.0003 | S1 |
+| **mean R²** | 0.8088 | 0.8079 | **−0.0009** | 12–12 tie |
 
 ---
 
