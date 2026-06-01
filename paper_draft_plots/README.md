@@ -10,11 +10,16 @@ Each figure is written at **300 dpi** in two formats, sized for a journal column
 | File | Figure in draft | Content |
 |---|---|---|
 | `fig1_motivation` | Fig 1 | Monitoring-density gap + LSTM-TL vs graph-TL motivation |
-| `fig2_city_graphs` | Fig 2 | k-NN station graphs (real coords) for Delhi/Kolkata/Guwahati |
-| `fig3_encoder_blocks` | Fig 3 | Inductive ST-GNN encoder block diagram with tensor shapes |
-| `fig4_graph_dann` | Fig 4 | Graph-DANN architecture + λ(p) warm-up inset |
-| `fig5_stage1_heatmaps` | Fig 5 | Stage-1 three-way verification small multiples |
-| `fig6_headline_bars` | Fig 6 | Cross-method transfer R² at d = 30 % |
+| `fig_pipeline` | Fig 2 | End-to-end experimental methodology (data → models → results) |
+| `fig_lstm_arch` | Fig 3 | Station-independent LSTM-TL architecture |
+| `fig3_encoder_blocks` | Fig 4 | Inductive ST-GNN encoder block diagram with tensor shapes |
+| `fig_gnn_blocks` | Fig 5 | GNN building blocks — dilated causal TCN + edge-weighted GAT |
+| `fig2_city_graphs` | Fig 6 | k-NN station graphs (real coords) for Delhi/Kolkata/Guwahati |
+| `fig4_graph_dann` | Fig 7 | Graph-DANN architecture + λ(p) warm-up inset |
+| `fig5_stage1_heatmaps` | Fig 8 | Stage-1 three-way verification small multiples |
+| `fig6_headline_bars` | Fig 9 | Cross-method transfer R² at d = 30 % |
+
+(File names are descriptive and stable; the *Figure N* column reflects reading order in the current draft.)
 
 Regenerate all figures:
 

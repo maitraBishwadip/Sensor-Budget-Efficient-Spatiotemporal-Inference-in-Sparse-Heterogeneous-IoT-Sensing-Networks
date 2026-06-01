@@ -162,7 +162,11 @@ Table 3 collects symbols used in the methodology.
 
 ## 4. Forecasting models
 
-We study two forecasters for the task of §3.2, presented in the order in which they build on one another. Both realize `f_θ` with a parameter count independent of `N_c`, so the same `θ` transfers across the three cities. §4.0 specifies the station-independent **LSTM-TL** model — the first solution, which solves data scarcity but ignores spatial structure. §4.1–4.4 specify the **inductive ST-GNN** that additionally learns a spatial operator and closes the structural gap of §1.3.
+We study two forecasters for the task of §3.2, presented in the order in which they build on one another. Both realize `f_θ` with a parameter count independent of `N_c`, so the same `θ` transfers across the three cities. §4.0 specifies the station-independent **LSTM-TL** model — the first solution, which solves data scarcity but ignores spatial structure. §4.1–4.4 specify the **inductive ST-GNN** that additionally learns a spatial operator and closes the structural gap of §1.3. Figure 2 gives the end-to-end methodology — from data collection through both transfer branches to the verified results.
+
+![Figure 2](../paper_draft_plots/fig_pipeline.png)
+
+**Figure 2.** End-to-end experimental methodology. Raw CPCB feeds (step 1) are harmonized and converted to a climatology-residual target under an interleaved split (step 2); a per-city k-NN graph is built for the GNN branch (step 3). Both forecasters are pre-trained on a source city and adapted to a data-scarce target — the LSTM-TL branch by fine-tuning, the GNN-TL branch by either PT-FT or Graph-DANN. Every cell is checked by three-way verification (step 4), evaluated on held-out target test data (step 5), and reported across the 24-cell grid (step 6).
 
 ### 4.0 The first forecaster: station-independent LSTM-TL
 
@@ -181,6 +185,10 @@ and the final hidden state is mapped to the one-step PM2.5 prediction by `ŷ = W
 **Transfer recipe.** LSTM-TL uses the same two-step cross-city recipe as the GNN (§5.1–5.2), minus the graph: (i) **pre-train** the LSTM on the source city's full training partition; (ii) **fine-tune** the pre-trained weights on a `d %` slice of the target city's training data, early-stopping on the target's own validation set, and evaluate on the target's held-out test set. There is no graph, no adversarial phase, and no `|V|`-dependent component, so the LSTM-TL pipeline is exactly Stage 0 + Stage 1 of §5 with the GNN encoder replaced by the LSTM. All LSTM-TL numbers reported in this paper come from this pipeline under the `--fixed` protocol of §6.
 
 **What it solves and what it leaves open.** LSTM-TL directly addresses data scarcity: a target city with very few labelled windows inherits a strong temporal forecaster from the source (§7.2). What it cannot do is exploit the spatial coupling between stations (§1.3-i) or learn an operator over the monitoring graph that is reused across cities (§1.3-ii). Those are precisely the gaps the ST-GNN below closes.
+
+![Figure 3](../paper_draft_plots/fig_lstm_arch.png)
+
+**Figure 3.** Station-independent LSTM-TL architecture. One station's 24-hour window (`H = 8`, `F = 14`) is consumed step-by-step by a 2-layer LSTM (hidden 64, dropout 0.2); the final hidden state passes through a two-layer fully-connected head to the +3 h PM2.5 prediction. The same ~50 k-parameter network is applied to every station independently, and transfer is pre-train-on-source then fine-tune-on-target.
 
 ### 4.1 The second forecaster: inductive ST-GNN encoder — overview
 
@@ -203,9 +211,9 @@ Input  X            [B, H, N, F]                       # batch, history, nodes, 
 
 None of these blocks has a parameter whose shape depends on `N` (proved in §4.4), so the same trained encoder runs verbatim on `N = 40`, `10`, or `4`.
 
-![Figure 2](../paper_draft_plots/fig2_city_graphs.png)
+![Figure 4](../paper_draft_plots/fig3_encoder_blocks.png)
 
-**Figure 2.** The three city graphs, built from real CPCB station coordinates with the k-NN rule (k = 3, Gaussian-decay edge weights, σ = 5 km). `|V|` ranges over {40, 10, 4} and `|E|` over {120, 30, 12} at a constant average degree of 3.0; the same inductive encoder runs forward on all three without any parameter-shape change.
+**Figure 4.** Block diagram of the inductive ST-GNN encoder, `TCN₁ → GAT₁ → GAT₂ → TCN₂ → LayerNorm → Linear head`, with the tensor shape annotated beneath each transition. The GAT layers are vectorized over the `B·H` per-timestep graphs; the TemporalConv blocks mix only along time, per node. No block carries a parameter whose shape depends on `|V|`, so the same ~25 k-parameter `θ` runs on `N = 40`, `10`, or `4`.
 
 ### 4.2 Layers
 
@@ -220,6 +228,10 @@ e_{ij} = LeakyReLU( ⟨Wx_i, a_src⟩ + ⟨Wx_j, a_dst⟩ ) + log(w_{ij}),
 where `a_src` and `a_dst` are separate per-endpoint attention vectors (equivalent to the additive GAT formulation of Veličković et al., 2018), and the `log(w_{ij})` term log-additively injects the external Gaussian-decay edge weight into the softmax. A per-destination softmax normalizes to `α_{ij}`, and `h_j = Σ_{i ∈ N(j)} α_{ij} W x_i`. The implementation is PyG-free for portability (cf. §6.4).
 
 **Graph readout (Stage 2 only).** A size-invariant pooled embedding is produced by concatenating mean and max pooling over the node axis of the encoder's last-step hidden state: `z = [mean_n(h_T[:, n, :]) || max_n(h_T[:, n, :])] ∈ ℝ^{B × 2·d_hidden}`. This is the standard GIN-style readout (Xu et al., 2019) and is the primitive that lets a single discriminator compare cities with `|V|` differing by an order of magnitude.
+
+![Figure 5](../paper_draft_plots/fig_gnn_blocks.png)
+
+**Figure 5.** The two inductive building blocks. **(a)** TemporalConv: a dilated (1, then 2) causal 1-D convolution applied per node along time, left-padded and causally trimmed so no future step leaks; its parameter count `(in·out·3)` is independent of `|V|`. **(b)** GAT layer: each node `j` aggregates a learned attention-weighted combination of its neighbours' projected features, with the external k-NN weight injected log-additively; the parameter count `out·(in+2)` has no per-node term and is independent of `|V|`.
 
 ### 4.3 Graph construction
 
@@ -237,6 +249,10 @@ Each city's spatial graph is built from station (lat, lon) coordinates.
 
 **4.3.2 Wind-aware directed graph (ablation).** Following PM2.5-GNN (Wang et al., 2020), edges are weighted by `max(0, cos(θ_w − θ_{ij})) · exp(−d_{ij} / decay_km)` with a prevailing wind `θ_w`. Used only in ablation.
 
+![Figure 6](../paper_draft_plots/fig2_city_graphs.png)
+
+**Figure 6.** The three city graphs, built from real CPCB station coordinates with the k-NN rule (k = 3, Gaussian-decay edge weights, σ = 5 km). `|V|` ranges over {40, 10, 4} and `|E|` over {120, 30, 12} at a constant average degree of 3.0; the same inductive encoder runs forward on all three without any parameter-shape change.
+
 ### 4.4 Why the architecture is inductive
 
 Every learnable parameter has a shape that depends only on `(F, d_hidden, d_gat)` and not on `N_c`. Table 5 enumerates.
@@ -253,10 +269,6 @@ Every learnable parameter has a shape that depends only on `(F, d_hidden, d_gat)
 | **Total** | — | — | **~25 000** |
 
 The same checkpoint thus loads onto Delhi's 40-station graph and Guwahati's 4-station graph without shape modification. The theoretical grounding for "the same operator generalizes across graphs of different sizes drawn from a similar generating process" is the graphon-transferability result of Ruiz, Chamon & Ribeiro (2020).
-
-![Figure 3](../paper_draft_plots/fig3_encoder_blocks.png)
-
-**Figure 3.** Block diagram of the inductive ST-GNN encoder, `TCN₁ → GAT₁ → GAT₂ → TCN₂ → LayerNorm → Linear head`, with the tensor shape annotated beneath each transition. The GAT layers are vectorized over the `B·H` per-timestep graphs; the TemporalConv blocks mix only along time, per node. No block carries a parameter whose shape depends on `|V|`, so the same ~25 k-parameter `θ` runs on `N = 40`, `10`, or `4`.
 
 ---
 
@@ -310,9 +322,9 @@ with the GRL multiplying gradients into the encoder by `−λ`. Three mini-batch
 
 **λ warm-up schedule** (Ganin et al., 2016): `λ(p) = 2/(1 + exp(−γ·p)) − 1`, `p = global_step / total_steps`, `γ = 10`. Starts at 0 (forecaster learns first); saturates near 1 by end of joint phase.
 
-![Figure 4](../paper_draft_plots/fig4_graph_dann.png)
+![Figure 7](../paper_draft_plots/fig4_graph_dann.png)
 
-**Figure 4.** Graph-DANN architecture. A three-city round-robin minibatch (source, target with labels withheld, third-city replay) feeds the shared inductive encoder; its size-invariant mean+max graph readout `z` branches into a forecast head (MSE) and, through a Gradient Reversal Layer, a 3-way city discriminator (cross-entropy). The GRL multiplies the discriminator's gradient into the encoder by `−λ`, so the encoder is trained to *fool* the classifier and produce a city-invariant embedding. Inset: the `λ(p) = 2/(1+e^{−10p}) − 1` warm-up schedule.
+**Figure 7.** Graph-DANN architecture. A three-city round-robin minibatch (source, target with labels withheld, third-city replay) feeds the shared inductive encoder; its size-invariant mean+max graph readout `z` branches into a forecast head (MSE) and, through a Gradient Reversal Layer, a 3-way city discriminator (cross-entropy). The GRL multiplies the discriminator's gradient into the encoder by `−λ`, so the encoder is trained to *fool* the classifier and produce a city-invariant embedding. Inset: the `λ(p) = 2/(1+e^{−10p}) − 1` warm-up schedule.
 
 ### 5.5 Why Graph-DANN over PT-FT
 
@@ -462,9 +474,9 @@ Best Stage 1 cell: **Delhi → Guwahati @ d = 45 %, R² = 0.8273**.
 
 All six cells pass; the full 24-cell verification (24/24 pass; mean gain over scratch +0.022 R²) is in Appendix A, Table A1.
 
-![Figure 5](../paper_draft_plots/fig5_stage1_heatmaps.png)
+![Figure 8](../paper_draft_plots/fig5_stage1_heatmaps.png)
 
-**Figure 5.** Stage 1 (PT-FT) three-way verification as small multiples (shared colour scale): zero-shot (source-only, no fine-tune; constant across `d`), scratch (random init, target fine-tune only), and transfer (PT-FT). In every one of the 24 cells the transfer panel exceeds both baselines — i.e. all 24 cells pass the "real transfer" test.
+**Figure 8.** Stage 1 (PT-FT) three-way verification as small multiples (shared colour scale): zero-shot (source-only, no fine-tune; constant across `d`), scratch (random init, target fine-tune only), and transfer (PT-FT). In every one of the 24 cells the transfer panel exceeds both baselines — i.e. all 24 cells pass the "real transfer" test.
 
 ### 7.4 Stage 2 — Graph-DANN (full grid + verification)
 
@@ -530,9 +542,9 @@ Table 15 compares the four methods on the headline `d = 30 %` column.
 
 LSTM-fixed is the strongest single-shot transferer in absolute R², but the GNN stages remain within ≈ 0.04 R² *and* uniquely solve the structural-transfer problem of §1.3 — the same architecture trained on Delhi's 40-station graph runs forward on Guwahati's 4-station graph with no parameter-shape change.
 
-![Figure 6](../paper_draft_plots/fig6_headline_bars.png)
+![Figure 9](../paper_draft_plots/fig6_headline_bars.png)
 
-**Figure 6.** Cross-method transfer accuracy at `d = 30 %` for all six ordered city pairs (Table 15). The fixed-protocol LSTM-TL is the strongest single-shot transferer in absolute R², while the two GNN stages remain within ≈ 0.04 R² and additionally solve the structural-transfer problem (one architecture across `|V| ∈ {4, 10, 40}` with no parameter-shape change).
+**Figure 9.** Cross-method transfer accuracy at `d = 30 %` for all six ordered city pairs (Table 15). The fixed-protocol LSTM-TL is the strongest single-shot transferer in absolute R², while the two GNN stages remain within ≈ 0.04 R² and additionally solve the structural-transfer problem (one architecture across `|V| ∈ {4, 10, 40}` with no parameter-shape change).
 
 ### 7.7 Sensitivity of Stage 2 stabilization fixes (ablation summary)
 
@@ -811,4 +823,4 @@ All values are test-partition R² in raw PM2.5 space under the `--fixed` protoco
 
 ---
 
-*End of draft. The six figures are embedded above; print-quality vector (PDF) and raster (PNG) versions are in `paper_draft_plots/`, regenerable via `python paper_draft_plots/make_figures.py`. Word count: ≈ 9 800 (within EMS / KBS norms for a methods paper). Suggested venue priority: Environmental Modelling & Software (best fit on methods × environmental application); Knowledge-Based Systems (strong on ML-methods framing); Atmospheric Environment (strongest on the AQ-domain framing but less methods-focused); Urban Climate (city-specific framing).*
+*End of draft. The nine figures are embedded above; print-quality vector (PDF) and raster (PNG) versions are in `paper_draft_plots/`, regenerable via `python paper_draft_plots/make_figures.py`. Word count: ≈ 9 800 (within EMS / KBS norms for a methods paper). Suggested venue priority: Environmental Modelling & Software (best fit on methods × environmental application); Knowledge-Based Systems (strong on ML-methods framing); Atmospheric Environment (strongest on the AQ-domain framing but less methods-focused); Urban Climate (city-specific framing).*
