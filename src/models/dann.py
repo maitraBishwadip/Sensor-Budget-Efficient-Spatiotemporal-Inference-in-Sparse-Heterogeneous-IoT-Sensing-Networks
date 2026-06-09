@@ -102,6 +102,69 @@ class GraphDANN(nn.Module):
         return y, city_logits
 
 
+class GraphDualDANN(nn.Module):
+    """Dual (marginal + conditional) adversarial domain adaptation.
+
+    Extends GraphDANN with a *conditional* discriminator in the CDAN style
+    (Long et al., NeurIPS-18): besides aligning the marginal embedding
+    distribution P(z) (the GraphDANN branch), it aligns the forecast-
+    conditional distribution P(z | y_hat) by feeding a second discriminator
+    the multilinear conditioned feature T = z (x) g(y_hat), where g is a small
+    learned summary of the graph-level forecast. This targets the documented
+    failure mode of marginal-only DANN in *regression* (de Mathelin et al.,
+    2020): aligning P(z) alone leaves the conditional structure unaligned, so
+    accuracy does not move. Dual alignment couples both, in the spirit of the
+    marginal/conditional duality of Dual Transfer Learning (Long et al.,
+    SDM-12).
+
+    forward() returns (forecast, marginal_logits, conditional_logits).
+    """
+
+    def __init__(
+        self,
+        encoder: nn.Module,
+        n_cities: int = 3,
+        discriminator_hidden: int = 64,
+        cond_dim: int = 8,
+    ) -> None:
+        super().__init__()
+        self.encoder = encoder
+        if not hasattr(encoder, "embedding_dim"):
+            raise ValueError("encoder must expose an 'embedding_dim' attribute")
+        d = encoder.embedding_dim
+        self.cond_dim = cond_dim
+        # marginal branch (identical to GraphDANN)
+        self.embed_norm = nn.LayerNorm(d)
+        self.marginal_disc = CityDiscriminator(d, discriminator_hidden, n_cities)
+        # conditional branch: summarize the forecast, then a multilinear map
+        self.forecast_proj = nn.Sequential(nn.Linear(2, cond_dim), nn.ReLU())
+        self.cond_norm = nn.LayerNorm(d * cond_dim)
+        self.conditional_disc = CityDiscriminator(d * cond_dim, discriminator_hidden, n_cities)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_weight: torch.Tensor,
+        lambda_: float = 0.0,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        y, z = self.encoder(x, edge_index, edge_weight, return_embedding=True)
+        z = self.embed_norm(z)
+
+        # --- marginal alignment: P(z) ---
+        m_logits = self.marginal_disc(grad_reverse(z, lambda_))
+
+        # --- conditional alignment: P(z | y_hat) via multilinear map ---
+        # Graph-level forecast summary g = MLP([mean_n y_hat, std_n y_hat]).
+        g_in = torch.stack([y.mean(dim=1), y.std(dim=1)], dim=-1)   # [B, 2]
+        g = self.forecast_proj(g_in)                               # [B, cond_dim]
+        # T = z (x) g  (outer product, flattened) — the CDAN conditioned feature.
+        T = torch.bmm(z.unsqueeze(2), g.unsqueeze(1)).flatten(1)    # [B, d*cond_dim]
+        T = self.cond_norm(T)
+        c_logits = self.conditional_disc(grad_reverse(T, lambda_))
+        return y, m_logits, c_logits
+
+
 def lambda_schedule(progress: float, gamma: float = 10.0) -> float:
     """Ganin's classic λ schedule: λ(p) = 2/(1+exp(-γp)) − 1, p ∈ [0, 1]."""
     p = float(progress)
