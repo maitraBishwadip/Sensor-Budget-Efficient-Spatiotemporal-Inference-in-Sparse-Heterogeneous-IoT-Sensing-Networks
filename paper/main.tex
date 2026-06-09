@@ -328,6 +328,28 @@ lets the forecaster stabilize before the adversary saturates. After the joint ph
 \label{fig:dann}
 \end{figure}
 
+\subsection{Stage~3 --- Dual Transfer Learning}\label{sec:dual}
+Graph-DANN aligns only the \emph{marginal} embedding distribution $P(z)$, and on our grid it merely ties PT-FT (Section~\ref{sec:results}). This is expected rather than anomalous: for \emph{regression} --- unlike classification --- aligning representation distributions alters feature scale and impedes adaptation \cite{chen2021rsd}, and adversarial regression alignment requires heavy down-weighting to avoid harm \cite{demathelin2020adversarial}. Following the marginal/conditional duality of \emph{dual transfer learning} \cite{long2012dtl}, we add a second, complementary alignment to the marginal adversary and study two instantiations.
+
+\textbf{Dual-CDAN (conditional adversary).} In the spirit of conditional adversarial adaptation \cite{long2018cdan}, a second discriminator is conditioned on the forecast through the multilinear map
+\begin{equation}
+T = z \otimes g(\hat{y}),\qquad g(\hat{y})=\mathrm{MLP}\big([\,\mathrm{mean}_n\,\hat{y}\ \Vert\ \mathrm{std}_n\,\hat{y}\,]\big),
+\label{eq:cdan}
+\end{equation}
+so the encoder is pressed to make the \emph{joint} $(z,\hat{y})$ distribution city-invariant rather than $z$ alone.
+
+\textbf{Dual-RSD (subspace alignment).} We instead add the scale-free Representation Subspace Distance \cite{chen2021rsd} between the source and target embedding batches $Z_s,Z_t$. Orthonormal bases $Q_s,Q_t$ of the two embedding subspaces are obtained by QR; the cosines of the principal angles $\Theta$ are the singular values of $Q_s^{\top}Q_t$, and the distance is the Grassmann projection metric
+\begin{equation}
+\mathrm{RSD}(Z_s,Z_t)=\lVert\sin\Theta\rVert_1,\qquad \cos\Theta=\mathrm{svdvals}\!\left(Q_s^{\top}Q_t\right),
+\label{eq:rsd}
+\end{equation}
+which aligns the \emph{geometry} of the representations without altering their scale --- the property \cite{chen2021rsd} identifies as essential for regression. The dual joint objective is
+\begin{equation}
+\mathcal{L}_{\text{dual}}=\mathrm{MSE}(\hat{y},y)+\alpha_m\,\mathcal{L}^{\text{marg}}_{\mathrm{CE}}+\beta\,\mathrm{RSD}(Z_s,Z_t),
+\label{eq:dualobj}
+\end{equation}
+with the marginal term as in \eqref{eq:dann} and $\beta=0.05$. Both variants reuse the Stage-2 protocol (warm-start, $\lambda$ schedule, fine-tune); only the alignment term changes. Related conditional/joint-distribution methods include JAN \cite{long2017jan} and subdomain LMMD \cite{zhu2021dsan}.
+
 \subsection{Three-Way Verification Protocol}\label{sec:verify}
 A cell demonstrates \emph{real} transfer only if the transfer model beats \emph{both} a zero-shot baseline (source weights, no fine-tune) and a from-scratch baseline (random init, same target sub-sample). Algorithm~\ref{alg:verify} formalizes this; the scratch control closes a loophole in much cross-city TL, where reporting only the transfer score cannot separate ``the source helped'' from ``we simply trained on $d\%$ of the target.''
 
@@ -546,6 +568,11 @@ The authors declare no conflict of interest.
 \bibitem{sangiorgio2024} M. Sangiorgio and G. Guariso, ``Transfer learning in environmental data-driven models: Ozone forecast in the Alpine region,'' \emph{Environ. Model. Softw.}, vol. 177, p. 106048, 2024.
 \bibitem{bergmeir2018cv} C. Bergmeir, R. J. Hyndman, and B. Koo, ``A note on the validity of cross-validation for evaluating autoregressive time series prediction,'' \emph{Comput. Stat. Data Anal.}, vol. 120, pp. 70--83, 2018.
 \bibitem{btp2025} B. Maitra, ``Transfer learning framework for PM2.5 forecasting in Indian cities,'' B.Tech. thesis, Indian Inst. Inf. Technol. Sri City, India, 2025.
+\bibitem{long2012dtl} M. Long, J. Wang, G. Ding, W. Cheng, X. Zhang, and W. Wang, ``Dual transfer learning,'' in \emph{Proc. SIAM Int. Conf. Data Mining (SDM)}, 2012, pp. 540--551.
+\bibitem{long2018cdan} M. Long, Z. Cao, J. Wang, and M. I. Jordan, ``Conditional adversarial domain adaptation,'' in \emph{Adv. Neural Inf. Process. Syst. (NeurIPS)}, 2018, pp. 1640--1650.
+\bibitem{chen2021rsd} X. Chen, S. Wang, J. Wang, and M. Long, ``Representation subspace distance for domain adaptation regression,'' in \emph{Proc. Int. Conf. Mach. Learn. (ICML)}, 2021, pp. 1749--1759.
+\bibitem{long2017jan} M. Long, H. Zhu, J. Wang, and M. I. Jordan, ``Deep transfer learning with joint adaptation networks,'' in \emph{Proc. Int. Conf. Mach. Learn. (ICML)}, 2017, pp. 2208--2217.
+\bibitem{zhu2021dsan} Y. Zhu \emph{et al.}, ``Deep subdomain adaptation network for image classification,'' \emph{IEEE Trans. Neural Netw. Learn. Syst.}, vol. 32, no. 4, pp. 1713--1722, 2021.
 \end{thebibliography}
 
 \end{document}
