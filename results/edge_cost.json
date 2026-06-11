@@ -1,0 +1,22 @@
+{
+  "n_params": 23745,
+  "size_kb": 92.8,
+  "history": 8,
+  "features": 14,
+  "device": "cpu",
+  "torch": "2.11.0+cpu",
+  "per_size": {
+    "4": {
+      "latency_ms": 1.52,
+      "throughput_hz": 658.0
+    },
+    "10": {
+      "latency_ms": 1.657,
+      "throughput_hz": 603.5
+    },
+    "40": {
+      "latency_ms": 2.609,
+      "throughput_hz": 383.3
+    }
+  }
+}
