@@ -101,6 +101,7 @@ def _fit_one_run(
                 patience_left = patience
         elif patience is not None:
             patience_left -= 1
+        print(f"      ft ep {ep+1:02d}/{epochs} val_R2={val_metrics['R2']:+.4f} best={best_val:+.4f}")
         if patience is not None and patience_left is not None and patience_left <= 0:
             break
     return best_val
@@ -297,7 +298,7 @@ def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--backbone", choices=["gat", "sage"], default="gat")
+    p.add_argument("--backbone", choices=["gat", "gatgru", "sage"], default="gat")
     p.add_argument("--fixed", action="store_true",
                    help="Use interleaved-split + climatology-residual source checkpoint and recipe.")
     p.add_argument("--full", action="store_true",

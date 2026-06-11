@@ -42,7 +42,7 @@ from src.utils import (
 MODELS_DIR = Path("models/gnn_pinn")
 RESULTS_DIR = Path("results/gnn_pinn")
 
-LAMBDA_PHYS = 0.05            # gentle by default (RSD's beta was 0.05); sweep on the pilot.
+LAMBDA_PHYS = 0.05            # gentle by default; swept on the pilot.
 DT_HOURS = HORIZON * 3.0     # forecast step in hours (3-hour cadence).
 # Feature channel order (src/data_pipeline.COMMON_FEATURES): PM2.5, AT, RH, WS, Sin_WD, Cos_WD, ...
 WS_IDX, SIN_WD_IDX, COS_WD_IDX = 3, 4, 5
@@ -173,6 +173,7 @@ def transfer_variant_e(
             patience_left = cfg["patience"]
         else:
             patience_left -= 1
+        print(f"    ft ep {ep+1:02d}/{cfg['epochs']} val_R2={vm['R2']:+.4f} best={best_val:+.4f} L_phys={last_phys:.3f}")
         if patience_left is not None and patience_left <= 0:
             break
 

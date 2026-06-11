@@ -118,8 +118,8 @@ class STGNN_GAT(nn.Module):
         x: [B, H, N, F]
         edge_index: [2, E] (long)
         edge_weight: [E, 1] (float)
-        return_embedding: if True, also return the graph-pooled embedding
-                          used as the input to the DANN discriminator.
+        return_embedding: if True, also return the size-invariant graph-pooled
+                          embedding (mean ⊕ max over nodes).
     Output: [B, N]   (PM2.5 at the next horizon step, per station)
     """
 
@@ -173,9 +173,56 @@ class STGNN_GAT(nn.Module):
         y = self.head(last).squeeze(-1)         # [B, N]
 
         if return_embedding:
-            # Graph-level pooled embedding (size-invariant, used by DANN).
+            # Graph-level pooled embedding (size-invariant, mean ⊕ max over nodes).
             mean_pool = last.mean(dim=1)         # [B, hidden_dim]
             max_pool, _ = last.max(dim=1)        # [B, hidden_dim]
             graph_emb = torch.cat([mean_pool, max_pool], dim=-1)  # [B, 2*hidden_dim]
             return y, graph_emb
+        return y
+
+
+class STGNN_GAT_GRU(nn.Module):
+    """Inductive ST-GNN: GAT spatial coupling (per time step) + a per-node GRU for the
+    temporal dynamics — giving the GNN the recurrent temporal capacity of the LSTM baseline
+    while retaining cross-station message passing. Parameter count is independent of |V|.
+
+    Pipeline:  x[B,H,N,F] ─ Linear ─ GAT×2 (per step) ─ per-node GRU over H ─ last ─ Linear ─ y[B,N]
+    """
+
+    def __init__(self, in_features: int, hidden_dim: int = 64, gat_dim: int = 64,
+                 dropout: float = 0.15, gru_layers: int = 2) -> None:
+        super().__init__()
+        self.in_proj = nn.Linear(in_features, hidden_dim)
+        self.gat1 = GATLayer(hidden_dim, gat_dim, dropout=dropout)
+        self.gat2 = GATLayer(gat_dim, gat_dim, dropout=dropout)
+        self.gru = nn.GRU(gat_dim, hidden_dim, num_layers=gru_layers, batch_first=True,
+                          dropout=dropout if gru_layers > 1 else 0.0)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.drop = nn.Dropout(dropout)
+        self.head = nn.Linear(hidden_dim, 1)
+        self._embedding_dim = hidden_dim * 2
+
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
+
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor,
+                return_embedding: bool = False):
+        B, H, N, _ = x.shape
+        z = F.relu(self.in_proj(x))                     # [B, H, N, hidden]
+        D = z.shape[-1]
+        # Spatial GAT per time step (vectorized over B*H graph instances).
+        zf = z.reshape(B * H, N, D)
+        zf = F.elu(self.gat1(zf, edge_index, edge_weight))
+        zf = F.elu(self.gat2(zf, edge_index, edge_weight))
+        z = zf.reshape(B, H, N, -1)                     # [B, H, N, gat_dim]
+        # Temporal GRU per node: collapse (B, N) into the batch axis, sequence over H.
+        z = z.permute(0, 2, 1, 3).reshape(B * N, H, -1) # [B*N, H, gat_dim]
+        out, _ = self.gru(z)                            # [B*N, H, hidden]
+        last = self.norm(self.drop(out[:, -1, :])).reshape(B, N, -1)  # [B, N, hidden]
+        y = self.head(last).squeeze(-1)                 # [B, N]
+        if return_embedding:
+            mean_pool = last.mean(dim=1)
+            max_pool, _ = last.max(dim=1)
+            return y, torch.cat([mean_pool, max_pool], dim=-1)
         return y

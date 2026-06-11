@@ -117,6 +117,7 @@ def virtual_sense(city: CityTensors, k: int, lambda_phys: float, *, backbone="ga
             best_val = vm["R2"]; save_checkpoint(model, ckpt, extra={"val_r2": best_val}); patience_left = PATIENCE
         else:
             patience_left -= 1
+        print(f"    ep {ep+1:02d}/{EPOCHS} U-val R2={vm['R2']:+.4f} best={best_val:+.4f}")
         if patience_left <= 0:
             break
 

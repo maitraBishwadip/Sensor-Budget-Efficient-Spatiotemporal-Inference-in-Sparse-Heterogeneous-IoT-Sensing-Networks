@@ -32,7 +32,7 @@ import torch
 import torch.nn as nn
 
 from src.graph_construction import build_city_graph
-from src.models.stgnn_gat import STGNN_GAT
+from src.models.stgnn_gat import STGNN_GAT, STGNN_GAT_GRU
 from src.models.stgnn_sage import STGNN_SAGE
 from src.utils import (
     CityTensors,
@@ -95,6 +95,8 @@ def build_backbone(name: str, in_features: int, *, fixed: bool = False) -> nn.Mo
     dp = FIXED_DROPOUT if fixed else DROPOUT
     if name == "gat":
         return STGNN_GAT(in_features, hidden_dim=hd, gat_dim=gd, dropout=dp)
+    if name == "gatgru":
+        return STGNN_GAT_GRU(in_features, hidden_dim=hd, gat_dim=gd, dropout=dp)
     if name == "sage":
         return STGNN_SAGE(in_features, hidden_dim=hd, sage_dim=gd, dropout=dp)
     raise ValueError(f"unknown backbone: {name}")
@@ -307,7 +309,7 @@ def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--backbone", choices=["gat", "sage"], default="gat")
+    p.add_argument("--backbone", choices=["gat", "gatgru", "sage"], default="gat")
     p.add_argument("--fixed", action="store_true",
                    help="Enable interleaved split + climatology residual + per-city LSTM-grade recipe.")
     main(p.parse_args())

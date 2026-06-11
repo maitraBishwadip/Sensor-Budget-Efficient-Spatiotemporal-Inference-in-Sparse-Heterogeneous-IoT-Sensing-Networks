@@ -130,11 +130,11 @@ Lin, L., Chen, J., & Wang, H. (2024). Unleash Graph Neural Networks from Heavy T
 
 Ganin, Y., & Lempitsky, V. (2015). Unsupervised Domain Adaptation by Backpropagation. In *Proceedings of the 32nd International Conference on Machine Learning (ICML-15)*. (DANN; gradient-reversal layer that this project's Variant B is built on.)
 
-Ganin, Y., Ustinova, E., Ajakan, H., Germain, P., Larochelle, H., Laviolette, F., Marchand, M., & Lempitsky, V. (2016). Domain-Adversarial Training of Neural Networks. *Journal of Machine Learning Research, 17(59)*, 1–35. (Source for the `λ(p) = 2/(1+exp(−γp))−1` warm-up schedule in [src/models/dann.py:105-108](../src/models/dann.py#L105-L108).)
+Ganin, Y., Ustinova, E., Ajakan, H., Germain, P., Larochelle, H., Laviolette, F., Marchand, M., & Lempitsky, V. (2016). Domain-Adversarial Training of Neural Networks. *Journal of Machine Learning Research, 17(59)*, 1–35. (Foundational domain-adaptation reference; cited as related work.)
 
-Tzeng, E., Hoffman, J., Saenko, K., & Darrell, T. (2017). Adversarial Discriminative Domain Adaptation. In *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR-17)*. (ADDA; source for the warm-start-from-supervised-source-pretraining step used in [src/train_gnn_dann.py:207-222](../src/train_gnn_dann.py#L207-L222).)
+Tzeng, E., Hoffman, J., Saenko, K., & Darrell, T. (2017). Adversarial Discriminative Domain Adaptation. In *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR-17)*. (ADDA; adversarial domain adaptation, cited as related work.)
 
-de Mathelin, A., Atiq, M., Richard, G., de la Concha, A., Yachouti, M., Deheeger, F., Mougeot, M., & Vayatis, N. (2020). Adversarial Weighting for Domain Adaptation in Regression. arXiv:2006.08251. (Diagnoses why naïve DANN often *underperforms* on regression and motivates the α_d ≪ 1 loss reweighting used in [src/train_gnn_dann.py:88-93](../src/train_gnn_dann.py#L88-L93).)
+de Mathelin, A., Atiq, M., Richard, G., de la Concha, A., Yachouti, M., Deheeger, F., Mougeot, M., & Vayatis, N. (2020). Adversarial Weighting for Domain Adaptation in Regression. arXiv:2006.08251. (Diagnoses why naïve adversarial domain adaptation underperforms on regression; cited as related work.)
 
 Finn, C., Abbeel, P., & Levine, S. (2017). Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks. In *Proceedings of the 34th International Conference on Machine Learning (ICML-17)*. (MAML.)
 
@@ -216,4 +216,4 @@ World Health Organization. (2021). *WHO global air quality guidelines: particula
 
 ---
 
-*End of References. Cross-references in [reports/MAIN_REPORT.md](MAIN_REPORT.md), [reports/RESULTS.md](RESULTS.md), and [reports/PAPER_DRAFT.md](PAPER_DRAFT.md) all draw from this bibliography.*
+*End of References. Cross-references in [reports/MAIN_REPORT.md](MAIN_REPORT.md), [reports/MATH_AUDIT.md](MATH_AUDIT.md), [reports/PINN_PHYSICS.md](PINN_PHYSICS.md), and [reports/SENSOR_EFFICIENCY_PINN_LITERATURE.md](SENSOR_EFFICIENCY_PINN_LITERATURE.md) draw from this bibliography.*

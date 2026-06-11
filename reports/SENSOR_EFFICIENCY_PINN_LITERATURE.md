@@ -2,7 +2,7 @@
 
 > **Venue pivot (2026-06-10):** target is now **IEEE Internet of Things Journal (IoT-J)** / an IEEE IoT venue, **not** TGRS. The problem is reframed from an *environmental / geoscience* problem (PM2.5 air-quality forecasting) to a **sensor-sparsity problem**: how to maintain spatio-temporal inference accuracy from *few* sensor nodes, and how to transfer a model across *heterogeneous deployments* with different node counts. **PM2.5 / CPCB CAAQM is the real-world IoT sensor-network testbed, not the subject.** Frame every experiment around sensor sparsity.
 
-Purpose: ground the IoT reframing and the **physics-informed Variant E** before committing experiments, and decide what "physics-informed" means for **sparse, irregular point-sensor** inference (4–40 nodes), not the dense-grid PDE setting most PINNs assume. Sibling to [DUAL_TL_LITERATURE.md](DUAL_TL_LITERATURE.md). Cross-refs: [PAPER_DRAFT.md](PAPER_DRAFT.md), [REFERENCES.md](REFERENCES.md), [`src/graph_construction.py`](../src/graph_construction.py).
+Purpose: ground the IoT reframing and the **physics-informed Variant E** before committing experiments, and decide what "physics-informed" means for **sparse, irregular point-sensor** inference (4–40 nodes), not the dense-grid PDE setting most PINNs assume. Cross-refs: [MAIN_REPORT.md](MAIN_REPORT.md), [PINN_PHYSICS.md](PINN_PHYSICS.md), [REFERENCES.md](REFERENCES.md), [`src/graph_construction.py`](../src/graph_construction.py).
 
 ---
 
@@ -26,16 +26,16 @@ This is a **sensor-budget / deployment-cost** question, squarely in scope for Io
 
 **CPCB CAAQM is a real heterogeneous IoT deployment.** The Central Pollution Control Board's Continuous Ambient Air Quality Monitoring network is exactly a networked, always-on sensor fleet streaming at fixed cadence — three deployments of order-of-magnitude different density: **Delhi 40 → Kolkata 10 → Guwahati 4 nodes**. PM2.5 is simply the signal; the contribution is about the *sparsity of the node set*. (IoT-based air-quality monitoring is an established IoT-J topic — see §5.4 — so this bridge is well-precedented, not a stretch.)
 
-**The sparsity evidence is already in our results.** From [`results/gnn_rsd/variantD_rsd_gat_fixed.json`](../results/gnn_rsd/variantD_rsd_gat_fixed.json):
+**The sparsity evidence is already in our results.** From [`results/gnn_tl/variantA_gat_fixed.json`](../results/gnn_tl/variantA_gat_fixed.json) (GNN-TL, pre-train + fine-tune):
 
 | Deployment (`|V|`) | Source deployment | Cold-start (zero-shot) R² | After transfer R² | MAE (µg/m³) |
 |---|---|---|---|---|
-| **Guwahati (4 nodes)** | Delhi | 0.710 | **0.828** (@45%) | 19.0 → 13.1 |
-| **Guwahati (4 nodes)** | Kolkata | 0.681 | **0.817** (@60%) | 21.9 → 13.2 |
-| Kolkata (10) | Delhi | 0.749 | 0.827 (@45%) | 13.5 → 10.0 |
-| Delhi (40) | Guwahati | 0.599 | 0.816 (@60%) | 39.4 → 25.4 |
+| **Guwahati (4 nodes)** | Delhi | 0.684 | **0.827** (@45%) | 20.5 → 13.4 |
+| **Guwahati (4 nodes)** | Kolkata | 0.670 | **0.816** (@60%) | 21.8 → 13.0 |
+| Kolkata (10) | Delhi | 0.728 | 0.818 (@45%) | 14.0 → 10.0 |
+| Delhi (40) | Guwahati | 0.632 | 0.817 (@60%) | 38.4 → 25.3 |
 
-**Money observation:** the *sparsest* deployment (4 nodes) gets the *largest* transfer lift (+0.12–0.14 R²). A station-independent LSTM cannot do this — it has no channel to share signal across nodes, so a 4-node deployment stays 4 isolated series. Spatial coupling converts a sparse node set into a forecastable network; physics (Variant E) explains *why few nodes can suffice*.
+**Money observation:** the *sparsest* deployment (4 nodes) gets among the largest transfer lifts (+0.13–0.15 R²). A station-independent LSTM cannot do this — it has no channel to share signal across nodes, so a 4-node deployment stays 4 isolated series. Spatial coupling (GNN) + transfer converts a sparse node set into a forecastable network. We then test whether transport *physics* is the underlying mechanism (§7) and find it is **not** — the transfer itself is the mechanism (the physics prior is a rigorous negative).
 
 ---
 
@@ -88,8 +88,8 @@ No prior work occupies this cell. Novelty is the **combination + the IoT sensor-
 
 ## 6. Positioning for IoT-J + the conditions of (cold-start) transfer
 
-- **Title/abstract** lead with **sparse, heterogeneous sensor networks** and **sensor-budget efficiency**; PM2.5 named as the evaluation testbed. Keep adversarial DA / RSD as *alignment levers*, not the headline.
-- **Physics is a property of the base model; transfer runs on top** → orthogonal-axes experiment **{data-only base, physics-informed base} × {PT-FT, Graph-DANN, RSD}**. Headline object = the **conditions map** `Δ = R²(physics) − R²(data-only)` over `|V|` and `d%`.
+- **Title/abstract** lead with **sparse, heterogeneous sensor networks** and **sensor-budget efficiency**; PM2.5 named as the evaluation testbed; **GNN-TL (pre-train + fine-tune)** is the transfer mechanism.
+- **Physics is a property of the base model; transfer runs on top** → orthogonal-axes experiment **{data-only GNN-TL, physics-informed GNN-TL}**. Headline object = the **conditions map** `Δ = R²(physics) − R²(data-only)` over `|V|` and `d%`.
 - **Headline contribution = conditions under which a sparse deployment can inherit a dense one** (cold-start transferability), explained, not just measured:
   1. **Physical universality → why transfer crosses `|V|`.** Advection–diffusion is the *same law* in every deployment; only the source/boundary term `S_i` is site-specific, so the transferred object (transport dynamics) is deployment-invariant. Principled answer to "why should a 40-node model work on a 4-node site?"
   2. **Field smoothness → when few nodes suffice** (ties directly to §4 GSP sampling): few nodes reconstruct a transport-dominated, graph-smooth field; a source-dominated spiky field (Delhi hotspots) needs more — explaining why Guwahati transfers to R²≈0.83 while Delhi keeps MAE≈25–35. `L_phys` becomes a **regime diagnostic**.
@@ -113,7 +113,7 @@ L_phys  = mean_{i,t} ‖r_i‖²
 L_total = L_data + λ_phys · L_phys    # κ, γ learnable; S_i learned or ≈0 at the 3-h horizon
 ```
 
-`A_wind` and `L` come from existing builders in [`src/graph_construction.py`](../src/graph_construction.py); `λ_phys` swept like `alpha_m`/`beta_rsd`. Realize the grid as `--physics --lambda_phys` on each existing transfer trainer.
+`A_wind` and `L` come from existing builders in [`src/graph_construction.py`](../src/graph_construction.py); `λ_phys` is swept as a single regularization weight. Realized as `--physics --lambda_phys` on the GNN-TL trainer.
 
 **E2 — physics-structured neural-ODE block (AirPhyNet-style).** More novel but a larger rebuild, collides more with AirPhyNet → defer to future work.
 
@@ -121,7 +121,7 @@ L_total = L_data + λ_phys · L_phys    # κ, γ learnable; S_i learned or ≈0 
 
 ## 8. Experiments — all framed around sensor sparsity (next session)
 
-**Structural experiment = the 2-D grid** {data-only base, physics base} × {PT-FT, DANN, RSD} on the identical protocol. Read-outs:
+**Structural experiment** = GNN-TL **with vs without the physics term** on the identical protocol. Read-outs:
 
 1. **Sensor-budget curve (hero figure).** Accuracy (R²/MAE) vs **number of active nodes**, curves for LSTM-TL / GNN-TL / GNN-PINN-TL. Three real points (4/10/40); **down-sample Delhi & Kolkata** to `k ∈ {4,6,8,…}` to fill it. *Choose which `k` nodes by graph-sampling placement (§4/§5.2) vs random* — placement matters is itself a result. Claim: physics shifts the budget curve left (same accuracy, fewer nodes).
 2. **Node-dropout / failure robustness (IoT-native).** At *inference*, randomly drop `p%` of nodes (battery/comms failure) and measure degradation. Hypothesis: GNN degrades gracefully (neighbours compensate), physics further; station-independent LSTM loses those nodes outright. This is an IoT reliability story no AQ-GNN paper reports.
@@ -129,7 +129,7 @@ L_total = L_data + λ_phys · L_phys    # κ, γ learnable; S_i learned or ≈0 
 4. **Conditions map.** `Δ(physics − data-only)` as a heatmap over `|V|` × `d%` — the "explain the conditions" deliverable.
 5. **Physics-consistency diagnostic.** Report `L_phys` per variant — transport-consistency where data-only is not; doubles as the regime indicator of §6.
 
-**Decision rule** (mirrors DUAL_TL_LITERATURE.md §7): keep Variant E if it beats its non-physics twin in mean ΔR² **or** wins on the sparsest `|V|` / lowest `d%` / node-dropout. A flat-overall-but-sparse-positive result *is* the sensor-sparsity finding. A clean null ("transport prior does not help dense deployments but recovers accuracy under node sparsity/failure") is itself citable.
+**Decision rule**: keep the physics term if it beats its non-physics twin in mean ΔR² **or** wins on the sparsest `|V|` / lowest `d%` / node-dropout. A flat-overall-but-sparse-positive result *is* the sensor-sparsity finding. A clean null ("transport prior does not help dense deployments but recovers accuracy under node sparsity/failure") is itself citable.
 
 ---
 
@@ -163,7 +163,7 @@ New REFERENCES.md sections: **"Q. Physics-informed / physics-guided spatiotempor
 - **Novelty:** GNN-PINN-for-PM2.5 already exists → novelty = combination + sensor-sparsity framing, stated explicitly.
 - **Identifiability:** with 4 nodes the graph operators are coarse; κ, γ weakly identified → sweep `λ_phys`, consider per-deployment κ, γ.
 - **Source term `S_i`:** emissions unobserved; assume ≈0 at 3-h horizon or learn a small per-node bias; document in limitations.
-- **`PAPER_DRAFT.md` + `IEEE_SUBMISSION_PLAN.md` need re-rooting** from TGRS/geoscience to IoT-J/sensing (title, §1 motivation, §2 related work, cover letter, format/length to IoT-J norms).
+- The consolidated [`MAIN_REPORT.md`](MAIN_REPORT.md) is the IoT-rooted narrative; this document supplies the sensor-sparsity positioning + literature for it.
 
 ---
 

@@ -27,7 +27,6 @@ import pandas as pd
 import torch
 
 from src.graph_construction import build_city_graph
-from src.models.dann import GraphDANN
 from src.models.lstm_baseline import LSTMForecaster
 from src.train_gnn import (
     BATCH_SIZE, DROPOUT, GAT_DIM, GRAPH_STRATEGY, HIDDEN, HISTORY, HORIZON,
