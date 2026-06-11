@@ -6,7 +6,9 @@ aligning representation *distributions* alters feature scale and impedes adaptat
 ICML 2021). RSD instead aligns the *orthogonal bases* of the source/target
 representation subspaces (scale-free, Grassmann geometry). This "dual" combines:
   - marginal adversarial alignment of P(z)        (as Graph-DANN), and
-  - RSD subspace alignment between source/target embeddings (regression-correct).
+  - a Grassmann principal-angle subspace-alignment penalty ||sin Theta||_1 between
+    source/target embeddings, adapted from RSD (bases-mismatch penalty omitted; scale-free,
+    regression-correct).
 
 Joint-phase loss per step:
     L = MSE(y_s) + alpha_m * sum_c CE(D_marg) + beta_rsd * RSD(z_s, z_t)
@@ -50,12 +52,13 @@ BETA_RSD = 0.05   # RSD subspace-alignment weight (gentle; RSD is unstable if to
 HISTORY, HORIZON = 8, 1
 
 
-def rsd_loss(f_s: torch.Tensor, f_t: torch.Tensor, alpha_bmp: float = 0.01,
-             eps: float = 1e-4) -> torch.Tensor:
-    """Representation Subspace Distance (Chen et al., ICML 2021).
+def rsd_loss(f_s: torch.Tensor, f_t: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
+    """Grassmann principal-angle subspace distance, adapted from RSD (Chen et al., ICML 2021).
 
-    Aligns the orthonormal bases of the two feature subspaces (scale-free).
-    f_s, f_t: [B, d] batches of embeddings.
+    Returns ||sin Theta||_1 — the L1 norm of the sines of the principal angles between the
+    source/target feature subspaces (scale-free). NOTE: this is the subspace-alignment term
+    ONLY; the bases-mismatch penalty (BMP) of the RSD paper is intentionally omitted, and the
+    norm is L1 (the paper uses Frobenius). f_s, f_t: [B, d] batches of embeddings.
 
     Numerically hardened: (i) skip if inputs are non-finite, (ii) clamp the
     principal-angle cosines to [-1+eps, 1-eps] so the sqrt(1-cos^2) gradient

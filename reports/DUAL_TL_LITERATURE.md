@@ -37,7 +37,7 @@ No prior work combines: (a) cross-city transfer under order-of-magnitude `|V|` h
 Run a controlled ladder of alignment objectives on the identical 24-cell protocol, so the comparison is one-to-one:
 1. **PT-FT** (no alignment) — have it.
 2. **Graph-DANN** (marginal adversarial) — have it (ties; the negative control that motivates the rest).
-3. **Dual-CDAN** (marginal + conditional **adversarial**, `z⊗ĝ`) — *pilot running now*. Hypothesis from §4: may still tie (still distribution alignment). Valuable either way as the "conditional-but-still-adversarial" data point.
+3. **Dual-CDAN** (marginal + conditional **adversarial**, `z⊗ĝ`) — **DROPPED (2026-06-11): the Dual-CDAN experiment (Variant C) was never completed (12/24 cells) and its code (`train_gnn_dual.py`, `GraphDualDANN`, `results/gnn_dual/`, `models/gnn_dual/`) was removed.** Hypothesis from §4 (may tie, still distribution alignment) is left untested; RSD (variant 4) is the retained dual method.
 4. **Dual-RSD** (marginal alignment **+ RSD subspace alignment**, the regression-correct term) — the variant §4 predicts should actually move accuracy. **Recommended as the headline dual method.**
 5. *(optional)* **Dual-LMMD** (forecast-conditioned LMMD, DSAN-style adapted to regression by binning the predicted PM2.5 into quantile "subdomains").
 
