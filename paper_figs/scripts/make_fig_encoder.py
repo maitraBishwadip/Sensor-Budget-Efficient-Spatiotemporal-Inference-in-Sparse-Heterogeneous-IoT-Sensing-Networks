@@ -1,8 +1,10 @@
-"""F3: Inductive ST-GNN encoder, redrawn in a clean colour-coded block style.
+"""F3: Inductive ST-GNN encoder, dense but compact (landscape) block diagram.
 
-Top: the spatio-temporal pipeline (TCN -> GAT x2 -> TCN -> LayerNorm -> head).
-Bottom: a zoom-in on one edge-weighted graph-attention layer (the GAT internals),
-echoing the "build up / zoom" style of standard architecture diagrams.
+(Top) a left-to-right layer spine (Input -> TConv -> GAT x2 -> TCN -> LayerNorm ->
+head -> PM2.5) with the running tensor shape labelled on every transition.
+(Bottom) an operator-detail row carrying the temporal-conv, graph-attention, and
+read-out equations. A size-invariance note asserts one weight set runs on N=40,10,4.
+Kept short (~3.1 in tall) so the full-width float fits the 8-page budget.
 
 Writes: paper_figs/fig_encoder.{pdf,png}
 """
@@ -13,66 +15,86 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.patches import Rectangle, FancyBboxPatch, FancyArrowPatch
 from figstyle import DCOL_W, save
 
-C = dict(grey="#ECEFF1", purple="#D1C4E9", tan="#FFE0B2", yellow="#FFF59D",
-         blue="#BBDEFB", green="#C8E6C9")
-EC = "#5f6368"
+INK = "#111111"
+SUB = "#333333"
+GRP = "#7A7F85"
+SHAPE = "#1f5fa8"
 
 
-def box(ax, cx, cy, w, h, text, fc, fs=6.8, bold=False):
-    ax.add_patch(FancyBboxPatch((cx - w / 2, cy - h / 2), w, h,
-                 boxstyle="round,pad=0.02,rounding_size=0.05",
-                 linewidth=0.8, edgecolor=EC, facecolor=fc, zorder=3))
-    ax.text(cx, cy, text, ha="center", va="center", fontsize=fs, zorder=4,
-            fontweight="bold" if bold else "normal")
+def box(ax, cx, cy, w, h, title, subs=None, *, tfs=6.8, sfs=6.1, lw=1.2, ec=INK, fc="white"):
+    ax.add_patch(Rectangle((cx - w / 2, cy - h / 2), w, h, facecolor=fc,
+                 edgecolor=ec, linewidth=lw, zorder=3))
+    if subs:
+        ax.text(cx, cy + h / 2 - 0.22, title, ha="center", va="top",
+                fontsize=tfs, fontweight="bold", color=INK, zorder=4)
+        ax.text(cx, cy + h / 2 - 0.56, "\n".join(subs), ha="center", va="top",
+                fontsize=sfs, color=SUB, zorder=4, linespacing=1.45)
+    else:
+        ax.text(cx, cy, title, ha="center", va="center", fontsize=tfs,
+                fontweight="bold", color=INK, zorder=4, linespacing=1.25)
 
 
-def arrow(ax, p0, p1, color=EC, lw=1.0, style="-|>", ls="-"):
-    ax.add_patch(FancyArrowPatch(p0, p1, arrowstyle=style, mutation_scale=8,
-                 lw=lw, color=color, linestyle=ls, zorder=2))
+def arrow(ax, p0, p1, *, lw=1.2, head=9, color=INK, ls="-"):
+    ax.add_patch(FancyArrowPatch(p0, p1, arrowstyle="-|>", mutation_scale=head,
+                 lw=lw, color=color, shrinkA=0, shrinkB=0, linestyle=ls, zorder=2))
 
 
-fig, ax = plt.subplots(figsize=(DCOL_W, 2.8))
-ax.set_xlim(0, 12)
-ax.set_ylim(0, 4.4)
-ax.axis("off")
+def lab(ax, x, y, s, *, fs=6.0, ha="center", color=INK, style="normal", rot=0, weight="normal"):
+    ax.text(x, y, s, ha=ha, va="center", fontsize=fs, color=color,
+            style=style, rotation=rot, zorder=5, fontweight=weight)
 
-# --- top: encoder pipeline ----------------------------------------------
-yt, bw, bh = 3.5, 1.18, 0.98
-xs = [0.85 + i * 1.46 for i in range(8)]
-stack = [("$X$\n$[B,H,N,F]$", C["grey"]), ("TConv\n(d=1)", C["tan"]),
-         ("GAT", C["blue"]), ("GAT", C["blue"]), ("TConv\n(d=2)", C["tan"]),
-         ("Layer\nNorm", C["yellow"]), ("Linear\nhead", C["green"]),
-         (r"$\hat{y}$" + "\n$[B,N]$", C["grey"])]
-for x, (t, c) in zip(xs, stack):
-    box(ax, x, yt, bw, bh, t, c, bold=(c == C["blue"]))
-for i in range(7):
-    arrow(ax, (xs[i] + bw / 2, yt), (xs[i + 1] - bw / 2, yt))
-ax.text(6.0, 4.28, r"Inductive ST-GNN encoder  ($|V|$-independent)",
-        ha="center", fontsize=8, fontweight="bold")
 
-# --- bottom: zoom into one GAT layer ------------------------------------
-cx0, cx1, cy0, cy1 = 1.6, 10.4, 0.42, 2.05
-ax.add_patch(FancyBboxPatch((cx0, cy0), cx1 - cx0, cy1 - cy0,
-             boxstyle="round,pad=0.02,rounding_size=0.06",
-             linewidth=0.8, edgecolor=C["blue"], facecolor="#F5F9FE", zorder=1))
-ax.text((cx0 + cx1) / 2, cy1 - 0.16, "Edge-weighted graph attention (one GAT layer)",
-        ha="center", fontsize=6.8, color="#1f5fa8", style="italic")
-# dashed zoom connectors from the first GAT box
-arrow(ax, (xs[2] - bw / 2, yt - bh / 2), (cx0 + 0.25, cy1), color=C["blue"], lw=0.7, style="-", ls=(0, (4, 3)))
-arrow(ax, (xs[2] + bw / 2, yt - bh / 2), (cx1 - 0.25, cy1), color=C["blue"], lw=0.7, style="-", ls=(0, (4, 3)))
+fig, ax = plt.subplots(figsize=(DCOL_W, 3.12))
+ax.set_xlim(0, 16); ax.set_ylim(0, 6.97); ax.axis("off")
 
-yb, iw, ih = 1.0, 1.25, 0.72
-ix = [2.5 + i * 1.45 for i in range(6)]
-inner = [("$x_i,\\,x_j$", C["grey"]), ("Linear $W$", C["purple"]),
-         ("score $e_{ij}$\n$+\\log w_{ij}$", C["tan"]), ("softmax\n$\\alpha_{ij}$", C["yellow"]),
-         ("aggregate", C["blue"]), ("$h_j$", C["green"])]
-for x, (t, c) in zip(ix, inner):
-    box(ax, x, yb, iw, ih, t, c, fs=6.3)
-for i in range(5):
-    arrow(ax, (ix[i] + iw / 2, yb), (ix[i + 1] - iw / 2, yb))
+lab(ax, 7.0, 6.72, "Inductive ST-GNN encoder  —  no parameter shape depends on $|V|$",
+    fs=8.0, weight="bold")
 
-fig.tight_layout(pad=0.2)
+# ---- top: left-to-right layer spine ------------------------------------
+SY, BH, BW = 5.05, 0.96, 1.80
+xs = [1.05 + i * 2.0 for i in range(7)]
+names = ["Input\n$X$", "TConv$_1$\n$K{=}3,\\,\\delta{=}1$", "GAT$_1$\n$+$ ELU",
+         "GAT$_2$\n$+$ ELU", "TConv$_2$\n$K{=}3,\\,\\delta{=}2$",
+         "LayerNorm\nlast step", "Linear\nhead"]
+shapes = ["$[B,H,N,F]$", "$[B,H,N,64]$", "$[B{\\cdot}H,N,64]$",
+          "$[B{\\cdot}H,N,64]$", "$[B,H,N,64]$", "$[B,N,64]$"]
+for x, t in zip(xs, names):
+    box(ax, x, SY, BW, BH, t)
+for i in range(6):
+    x0, x1 = xs[i] + BW / 2, xs[i + 1] - BW / 2
+    arrow(ax, (x0, SY), (x1, SY))
+    lab(ax, (x0 + x1) / 2, SY + BH / 2 + 0.26, shapes[i], fs=5.2, color=SHAPE)
+# output
+arrow(ax, (xs[6] + BW / 2, SY), (xs[6] + BW / 2 + 0.95, SY))
+lab(ax, xs[6] + BW / 2 + 0.55, SY + BH / 2 + 0.26, "$[B,N]$", fs=5.2, color=SHAPE)
+lab(ax, xs[6] + BW / 2 + 1.7, SY, "$\\hat{y}$ :  PM$_{2.5}$\n(+3 h)", fs=7.0, weight="bold")
+
+# ---- dashed detail connectors to the operator row ----------------------
+OY, OH = 2.02, 2.04
+ot, og, oh = 2.85, 8.05, 13.15
+det = dict(ls=(0, (4, 3)), color=GRP, lw=0.8, head=7)
+arrow(ax, (xs[1], SY - BH / 2), (ot, OY + OH / 2), **det)
+arrow(ax, (xs[2], SY - BH / 2), (og - 1.0, OY + OH / 2), **det)
+arrow(ax, (xs[3], SY - BH / 2), (og + 1.0, OY + OH / 2), **det)
+arrow(ax, (xs[6], SY - BH / 2), (oh, OY + OH / 2), **det)
+
+# ---- bottom: operator detail -------------------------------------------
+box(ax, ot, OY, 4.9, OH, "Temporal block  (dilated causal TCN)",
+    ["1-D conv per node  ·  $K{=}3$  ·  $\\delta\\in\\{1,2\\}$",
+     "$(\\mathrm{TConv}\\,x)_{n,t}=\\sum_{k}\\Theta_k\\,x_{n,\\,t-\\delta k}+b$"], lw=1.0)
+box(ax, og, OY, 5.3, OH, "Edge-weighted graph attention  (GAT)",
+    ["$e_{ij}=\\mathrm{LeakyReLU}(a_s^{\\top}Wx_i+a_d^{\\top}Wx_j)+\\log w_{ij}$",
+     "$\\alpha_{ij}=\\mathrm{softmax}_j(e_{ij})$ ,   "
+     "$h_j=\\sum_{i\\in\\mathcal{N}(j)}\\alpha_{ij}\\,Wx_i$"], lw=1.0, sfs=6.0)
+box(ax, oh, OY, 4.7, OH, "Read-out",
+    ["per-node linear head  →  $\\hat{y}$",
+     "$|\\theta|$ independent of node count $N$"], lw=1.0)
+
+lab(ax, 8.0, 0.42, "size-invariant:  the same $\\theta$ ($\\approx$24k params) runs verbatim on  $N = 40,\\ 10,\\ 4$",
+    fs=6.2, color=GRP, style="italic")
+
+fig.tight_layout(pad=0.15)
 save(fig, "fig_encoder")
