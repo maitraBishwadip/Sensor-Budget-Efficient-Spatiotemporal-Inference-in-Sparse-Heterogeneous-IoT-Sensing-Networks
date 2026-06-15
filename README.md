@@ -1,51 +1,57 @@
-# GNN-TL — Transfer Learning over Sparse, Heterogeneous Sensor Networks for PM2.5 Forecasting
+# Sensor-Budget-Efficient Spatiotemporal Inference in Sparse, Heterogeneous IoT Sensing Networks
 
-Short-horizon PM2.5 forecasting across three real, order-of-magnitude-different sensor deployments (Delhi 40 / Kolkata 10 / Guwahati 4 nodes), framed as a **sparse-IoT-sensor-network** problem. We compare a station-independent **LSTM** against an inductive, `|V|`-independent **Spatio-Temporal GNN** under transfer learning, and ask honestly *what helps*: **transfer learning (yes, decisively)**, **spatial coupling (not for forecasting, but clearly for virtual sensing at unsensored nodes)**, and **transport physics (no — a rigorous negative)**.
+**Virtual sensing and cross-deployment transfer for PM2.5 monitoring, on real CPCB air-quality networks of 40, 10, and 4 sensor nodes.**
 
-> The CPCB CAAQM network is treated as a real heterogeneous IoT sensor deployment; PM2.5 is the signal, **sensor sparsity is the problem**.
+A single inductive, node-count-independent spatio-temporal GNN (~24k parameters, 93 KB, <3 ms/inference on a commodity CPU) that stretches a small sensor budget three ways — and an honest accounting of where the graph does *not* help.
 
-## The story (one coherent spine)
-
-1. **Baselines** — station-independent **LSTM** vs spatial **GNN**, source-only per city. *Finding: LSTM ≥ GNN.*
-2. **Transfer learning** — **LSTM-TL** and **GNN-TL** (pre-train + fine-tune): a sparse target deployment inherits a forecaster from a dense source. *Finding: TL is the decisive lever; a well-tuned LSTM-TL is as good as or better than GNN-TL.*
-3. **Virtual sensing + physics probe** — the GNN's genuine edge: estimating PM2.5 at **unsensored** locations by borrowing from neighbours, beating a met-only LSTM by **+0.08 to +0.16 R²** at the unsensored nodes (the LSTM has no spatial mechanism). A physics-informed advection–diffusion prior (GNN-PINN) is tested as the candidate mechanism and found **not** to help — a well-controlled negative.
-
-Reports: **consolidated technical report** [reports/MAIN_REPORT.md](reports/MAIN_REPORT.md); mathematical audit [reports/MATH_AUDIT.md](reports/MATH_AUDIT.md); data-leakage audit [reports/AUDIT.md](reports/AUDIT.md); sensor-sparsity & physics positioning [reports/SENSOR_EFFICIENCY_PINN_LITERATURE.md](reports/SENSOR_EFFICIENCY_PINN_LITERATURE.md); ADR physics derivation [reports/PINN_PHYSICS.md](reports/PINN_PHYSICS.md); physics ablation write-up [reports/PHYSICS_ABLATION_SECTION.md](reports/PHYSICS_ABLATION_SECTION.md); bibliography [reports/REFERENCES.md](reports/REFERENCES.md).
+![System architecture](paper_figs/fig_architecture.png)
 
 ---
 
+## The problem
+
+The value of an IoT sensing deployment rests on the spatial density of its sensors, yet density is exactly what is expensive to provision and maintain. Real reference networks are therefore **sparse and heterogeneous**: the public CPCB CAAQM deployments we study span an order of magnitude in size — **Delhi 40, Kolkata 10, Guwahati 4 nodes**. The operative engineering question is not *which model forecasts best given abundant data*, but **how few physical sensors a deployment needs**, and how much of the cost of additional nodes can be displaced into software.
+
+PM2.5 is the measured signal (a leading health risk), but the **sensing constraint** — not the pollutant — is the subject of this work; the methods are signal-agnostic.
+
+## How it is solved — three levers on one model
+
+We use one inductive ST-GNN whose parameter count is independent of the node count `|V|`, so the *same* checkpoint runs verbatim on the 40-, 10-, and 4-node graphs:
+
+1. **Virtual sensing** — estimate PM2.5 at locations with *no* physical sensor by propagating information across the sensor graph. Reaches **R² 0.73–0.77** at unsensored nodes, beating a meteorology-only station-independent LSTM by **+0.08 to +0.16 R²**. A few physical sensors software-cover the rest.
+2. **Cold-start transfer** — a newly deployed sparse network inherits a model pre-trained on a dense one and recovers most attainable accuracy from **≤15 % of its own labels**. Verified against zero-shot **and** from-scratch controls in **all 24** transfer settings.
+3. **Graceful degradation** — inference at unsensored nodes stays **above 0.80 R² down to four sensors**.
+
+**Two honest negatives** (reported, not hidden): a lightweight station-independent LSTM *matches* the graph model on plain forecasting, and an advection–diffusion physics prior yields *no* significant gain. The graph earns its keep precisely at virtual sensing and sparsity robustness — not at forecasting, where the cheaper model suffices.
+
+![Virtual-sensing result](paper_figs/fig_vsense_hero.png)
+
 ## Tech stack
 
-- Python 3.10+, PyTorch ≥ 2.1 (CPU-only — no CUDA / PyG; GAT and SAGE layers implemented from scratch in [src/models/](src/models/))
-- NumPy, Pandas, scikit-learn (preprocessing/metrics), SciPy (significance tests)
-- Pinned in [requirements.txt](requirements.txt)
+- **Python 3.10+**, **PyTorch ≥ 2.1 (CPU-only)** — no CUDA, no PyTorch Geometric, no compiled extensions. The GAT and GraphSAGE layers are implemented from scratch in [`src/models/`](src/models/).
+- **NumPy, pandas, scikit-learn** (pipeline + metrics), **SciPy** (significance tests).
+- Pinned in [`requirements.txt`](requirements.txt). The full grid reproduces in **≈2.5 h on 8 vCPU with no GPU**.
+- Figures are regenerated by the scripts in [`paper_figs/scripts/`](paper_figs/scripts/), and the edge-deployment cost profile by `measure_edge_cost.py`.
 
 ## Repository layout
 
 ```
-GNN_TL/
+.
 ├── src/
-│   ├── data_pipeline.py          CSV → per-city tensors + metadata
-│   ├── graph_construction.py     k-NN / wind / hybrid adjacency builders
-│   ├── utils.py                  splits, windowing, climatology, scalers, metrics
-│   ├── models/
-│   │   ├── lstm_baseline.py      station-independent LSTM
-│   │   ├── stgnn_gat.py          inductive GAT + TCN encoder
-│   │   ├── stgnn_sage.py         inductive GraphSAGE + TCN (backbone ablation)
-│   │   └── physics.py            graph advection–diffusion (ADR) operators + residual
-│   ├── train_lstm.py             LSTM source-only + LSTM-TL
-│   ├── train_gnn.py              GNN source-only
-│   ├── train_gnn_tl.py           GNN-TL (pre-train + fine-tune)
-│   ├── train_gnn_pinn.py         GNN-PINN-TL (physics-informed; rigorous-negative ablation)
-│   ├── train_gnn_vsense.py       virtual sensing (estimate PM2.5 at unsensored nodes)
-│   └── evaluate.py               robustness battery (seasonal / cross-city / per-station)
-├── analysis/
-│   ├── sensor_budget.py          node-dropping sensor-budget experiment
-│   └── vsense_ablation.py        virtual-sensing multi-seed + wind-vs-smoothness ablation
-├── dataset/                      CPCB raw + processed CSVs (raw not redistributed)
-├── models/                       checkpoints: lstm/ gnn/ gnn_tl/ gnn_pinn/ gnn_vsense/
-├── results/                      result JSONs: lstm/ gnn/ gnn_tl/ gnn_pinn/ gnn_vsense/
-└── reports/                      written reports (see links above)
+│   ├── data_pipeline.py        CSV → per-city tensors + metadata
+│   ├── graph_construction.py   k-NN / wind-aware adjacency builders
+│   ├── utils.py                splits, windowing, climatology, scalers, metrics
+│   ├── models/                 LSTM, ST-GNN (GAT + TCN / GRU), GraphSAGE, physics ops
+│   ├── train_lstm.py           LSTM source-only + LSTM-TL
+│   ├── train_gnn.py            GNN source-only
+│   ├── train_gnn_tl.py         GNN cold-start transfer (3-way verified)
+│   ├── train_gnn_vsense.py     virtual sensing at unsensored nodes
+│   └── train_gnn_pinn.py       physics-informed ablation (rigorous negative)
+├── analysis/                   sensor-budget sweep, multi-seed physics ablation, per-U LSTM baseline
+├── paper_figs/                 figure-generation scripts + PNGs + edge-cost profiler
+├── models/                     trained checkpoints (one |V|-independent encoder per setting)
+├── results/                    metric JSONs written by the training scripts
+└── dataset/                    CPCB CAAQM data (raw + processed), subject to CPCB's terms
 ```
 
 ## Setup
@@ -60,28 +66,55 @@ pip install -r requirements.txt
 
 ```bash
 # 1) Preprocess raw CPCB CSVs → dataset/processed/*.csv + metadata.json
-python -m src.data_pipeline
+python -m src.data_pipeline                                   # regenerates dataset/processed/* (already included in the repo)
 
 # 2) Baselines + transfer (fixed protocol: interleaved split + climatology residual)
-python -u -m src.train_lstm   --mode all --fixed          # LSTM source-only + LSTM-TL
-python -u -m src.train_gnn    --backbone gat --fixed       # GNN source-only
-python -u -m src.train_gnn_tl --backbone gat --fixed --full  # GNN-TL (24-cell grid + 3-way verification)
+python -u -m src.train_lstm   --mode all --fixed              # LSTM source-only + LSTM-TL
+python -u -m src.train_gnn    --backbone gat  --fixed         # GNN source-only
+python -u -m src.train_gnn_tl --backbone gat  --fixed --full  # GNN-TL: 24-cell grid + 3-way verification
 
-# 3) Physics-informed probe + sensor-sparsity (the "more value from fewer sensors" study)
-python -u -m src.train_gnn_pinn   --fixed --full           # GNN-PINN-TL ablation
-python -u -m analysis.sensor_budget                        # node-dropping sensor-budget
-python -u -m src.train_gnn_vsense --fixed                  # virtual sensing at unsensored nodes
-python -u -m analysis.vsense_ablation                      # multi-seed + wind-vs-smoothness ablation
+# 3) Virtual sensing, sensor-budget sweep, and the physics probe
+python -u -m src.train_gnn_vsense --fixed                     # estimate PM2.5 at unsensored nodes
+python -u -m analysis.lstm_vsense_peru                        # met-only LSTM baseline at the same nodes
+python -u -m analysis.sensor_budget                           # graceful-degradation sweep
+python -u -m src.train_gnn_pinn   --fixed --full              # advection–diffusion prior
+python -u -m analysis.vsense_ablation                         # multi-seed wind-vs-smoothness ablation
 
-# 4) Robustness battery + tabular report
-python -u -m src.evaluate
-python reports/generate_results_table.py
+# 4) Edge-deployment cost + figures
+python paper_figs/scripts/measure_edge_cost.py                # params / footprint / CPU latency → results/edge_cost.json
+python paper_figs/scripts/make_fig_vsense.py                  # (and the other make_fig_*.py) regenerate figures
 ```
 
 ## Data access
 
-Raw CPCB station data is **not redistributed** here — it is governed by CPCB's own terms. Place the raw CSVs into `dataset/` matching the names in [src/data_pipeline.py](src/data_pipeline.py) and run preprocessing.
+The **CPCB CAAQM** data used here — the raw 3-hourly CSVs and the processed per-city tensors under `dataset/` — originates from the [CPCB CAAQM portal](https://airquality.cpcb.gov.in/) and remains subject to **CPCB's terms of use**. Please attribute CPCB and consult those terms before any redistribution or commercial use. The processed CSVs let the pipeline run from step 2 directly; step 1 reproduces them from the raw source via [`src/data_pipeline.py`](src/data_pipeline.py).
 
-## License
+## License and usage
 
-MIT for code. Raw CPCB data falls under CPCB's terms.
+- **Code** is released under the **MIT License**.
+- **Data** is *not* covered by that license: any CPCB data you obtain remains subject to CPCB's terms.
+
+**If you use this code or build on it, please (1) cite the paper below, (2) acknowledge the authors, and (3) comply with CPCB's data terms.** Please do not present these results or derivatives as your own work.
+
+## Citation
+
+```bibtex
+@article{maitra2026sensorbudget,
+  title   = {Sensor-Budget-Efficient Spatiotemporal Inference in Sparse, Heterogeneous
+             IoT Sensing Networks: Virtual Sensing and Cross-Deployment Transfer},
+  author  = {Maitra, Bishwadip and Mondal, Subhojit and Thakur, Mainak},
+  journal = {IEEE Internet of Things Journal (preprint)},
+  year    = {2026}
+}
+```
+
+This work extends the predecessor B.Tech thesis: B. Maitra, C. T. Sanjeev, and B. B. Prakash, *Transfer Learning Framework for PM2.5 Forecasting in Indian Cities*, IIIT Sri City, 2025.
+
+## Acknowledgements
+
+The authors thank the **Central Pollution Control Board (CPCB), Government of India** for the open CAAQM data, and **IIIT Sri City** for compute and supervision. A generative-AI assistant (Anthropic, Claude Code) was used for code scaffolding, figure generation, and language editing; all study design, experiments, analyses, and conclusions were conceived, executed, and verified by the authors, who take full responsibility for the content.
+
+## Authors
+
+Bishwadip Maitra · Subhojit Mondal · Mainak Thakur — Indian Institute of Information Technology Sri City / IIT Madras.
+```

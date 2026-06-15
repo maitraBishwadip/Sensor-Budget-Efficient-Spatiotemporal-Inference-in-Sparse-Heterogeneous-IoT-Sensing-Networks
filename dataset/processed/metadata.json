@@ -1,0 +1,413 @@
+{
+  "Delhi": {
+    "city": "Delhi",
+    "stations": [
+      "Alipur",
+      "Anand Vihar",
+      "Ashok Vihar",
+      "Aya Nagar",
+      "Bawana",
+      "Burari Crossing",
+      "CRRI Mathura Road",
+      "Chandni Chowk",
+      "DTU",
+      "Dr.Karni Singh Shooting Range",
+      "Dwarka-Sector 8",
+      "East Arjun Nagar",
+      "IGI Airport(T3)",
+      "IHBAS Dilshad Garden",
+      "ITO",
+      "Jahangirpuri",
+      "Jawaharlal Nehru Stadium",
+      "Lodhi Road IITM",
+      "Lodhi Road IMD",
+      "Major Dhyan Chand National Stadium",
+      "Mandir Marg",
+      "Mundka",
+      "NSIT Dwarka",
+      "Najafgarh",
+      "Narela",
+      "Nehru Nagar",
+      "North Campus DU",
+      "Okhla Phase-2",
+      "Patparganj",
+      "Punjabi Bagh",
+      "Pusa DPCC",
+      "Pusa IMD",
+      "R K Puram",
+      "Rohini",
+      "Shadipur",
+      "Sirifort",
+      "Sonia Vihar",
+      "Sri Aurobindo Marg",
+      "Vivek Vihar",
+      "Wazirpur"
+    ],
+    "coords": {
+      "Alipur": [
+        28.82,
+        77.15
+      ],
+      "Anand Vihar": [
+        28.65,
+        77.32
+      ],
+      "Ashok Vihar": [
+        28.7,
+        77.18
+      ],
+      "Aya Nagar": [
+        28.47,
+        77.11
+      ],
+      "Bawana": [
+        28.78,
+        77.05
+      ],
+      "Burari Crossing": [
+        28.73,
+        77.2
+      ],
+      "CRRI Mathura Road": [
+        28.55,
+        77.27
+      ],
+      "Chandni Chowk": [
+        28.66,
+        77.23
+      ],
+      "DTU": [
+        28.75,
+        77.11
+      ],
+      "Dr.Karni Singh Shooting Range": [
+        28.5,
+        77.26
+      ],
+      "Dwarka-Sector 8": [
+        28.57,
+        77.07
+      ],
+      "East Arjun Nagar": [
+        28.66,
+        77.29
+      ],
+      "IGI Airport(T3)": [
+        28.56,
+        77.12
+      ],
+      "IHBAS Dilshad Garden": [
+        28.68,
+        77.3
+      ],
+      "ITO": [
+        28.63,
+        77.25
+      ],
+      "Jahangirpuri": [
+        28.73,
+        77.17
+      ],
+      "Jawaharlal Nehru Stadium": [
+        28.58,
+        77.23
+      ],
+      "Lodhi Road IITM": [
+        28.59,
+        77.22
+      ],
+      "Lodhi Road IMD": [
+        28.59,
+        77.23
+      ],
+      "Major Dhyan Chand National Stadium": [
+        28.61,
+        77.24
+      ],
+      "Mandir Marg": [
+        28.64,
+        77.2
+      ],
+      "Mundka": [
+        28.68,
+        77.08
+      ],
+      "NSIT Dwarka": [
+        28.61,
+        77.03
+      ],
+      "Najafgarh": [
+        28.57,
+        76.93
+      ],
+      "Narela": [
+        28.82,
+        77.1
+      ],
+      "Nehru Nagar": [
+        28.57,
+        77.25
+      ],
+      "North Campus DU": [
+        28.66,
+        77.16
+      ],
+      "Okhla Phase-2": [
+        28.53,
+        77.27
+      ],
+      "Patparganj": [
+        28.62,
+        77.29
+      ],
+      "Punjabi Bagh": [
+        28.56,
+        77.19
+      ],
+      "Pusa DPCC": [
+        28.64,
+        77.15
+      ],
+      "Pusa IMD": [
+        28.65,
+        77.17
+      ],
+      "R K Puram": [
+        28.67,
+        77.13
+      ],
+      "Rohini": [
+        28.73,
+        77.12
+      ],
+      "Shadipur": [
+        28.65,
+        77.15
+      ],
+      "Sirifort": [
+        28.55,
+        77.22
+      ],
+      "Sonia Vihar": [
+        28.71,
+        77.25
+      ],
+      "Sri Aurobindo Marg": [
+        28.53,
+        77.19
+      ],
+      "Vivek Vihar": [
+        28.67,
+        77.32
+      ],
+      "Wazirpur": [
+        28.7,
+        77.17
+      ]
+    },
+    "n_records_per_station": {
+      "Alipur": 5840,
+      "Anand Vihar": 5840,
+      "Ashok Vihar": 5840,
+      "Aya Nagar": 5840,
+      "Bawana": 5840,
+      "Burari Crossing": 5840,
+      "CRRI Mathura Road": 5840,
+      "Chandni Chowk": 5840,
+      "DTU": 5840,
+      "Dr.Karni Singh Shooting Range": 5840,
+      "Dwarka-Sector 8": 5840,
+      "East Arjun Nagar": 5840,
+      "IGI Airport(T3)": 5840,
+      "IHBAS Dilshad Garden": 5840,
+      "ITO": 5840,
+      "Jahangirpuri": 5840,
+      "Jawaharlal Nehru Stadium": 5840,
+      "Lodhi Road IITM": 5840,
+      "Lodhi Road IMD": 5840,
+      "Major Dhyan Chand National Stadium": 5840,
+      "Mandir Marg": 5840,
+      "Mundka": 5840,
+      "NSIT Dwarka": 5840,
+      "Najafgarh": 5840,
+      "Narela": 5840,
+      "Nehru Nagar": 5840,
+      "North Campus DU": 5840,
+      "Okhla Phase-2": 5840,
+      "Patparganj": 5840,
+      "Punjabi Bagh": 5840,
+      "Pusa DPCC": 5840,
+      "Pusa IMD": 5840,
+      "R K Puram": 5840,
+      "Rohini": 5840,
+      "Shadipur": 5840,
+      "Sirifort": 5840,
+      "Sonia Vihar": 5840,
+      "Sri Aurobindo Marg": 5840,
+      "Vivek Vihar": 5840,
+      "Wazirpur": 5840
+    },
+    "train_end": "2022-05-26T21:00:00",
+    "val_end": "2022-09-13T12:00:00",
+    "test_end": "2022-12-31T21:00:00",
+    "feature_cols": [
+      "PM2.5",
+      "AT",
+      "RH",
+      "WS",
+      "Sin_WD",
+      "Cos_WD",
+      "sin_hour",
+      "cos_hour",
+      "sin_month",
+      "cos_month",
+      "Season_Winter",
+      "Season_Spring",
+      "Season_Summer",
+      "Season_Monsoon"
+    ],
+    "target_col": "PM2.5"
+  },
+  "Kolkata": {
+    "city": "Kolkata",
+    "stations": [
+      "Ballygunge",
+      "Belur Math",
+      "Bidhannagar",
+      "Fort William",
+      "Ghusuri",
+      "Jadavpur",
+      "Padmapukur",
+      "Rabindra Bharati University",
+      "Rabindra Sarobar",
+      "Victoria"
+    ],
+    "coords": {
+      "Ballygunge": [
+        22.5367507,
+        88.3638022
+      ],
+      "Belur Math": [
+        22.6329238,
+        88.3564673
+      ],
+      "Bidhannagar": [
+        22.5809988,
+        88.4122248
+      ],
+      "Fort William": [
+        22.554759,
+        88.3398256
+      ],
+      "Ghusuri": [
+        22.6114288,
+        88.3536385
+      ],
+      "Jadavpur": [
+        22.492132,
+        88.3688847
+      ],
+      "Padmapukur": [
+        22.5690099,
+        88.2987391
+      ],
+      "Rabindra Bharati University": [
+        22.5846225,
+        88.3594055
+      ],
+      "Rabindra Sarobar": [
+        22.5120018,
+        88.3638256
+      ],
+      "Victoria": [
+        22.5447883,
+        88.3426758
+      ]
+    },
+    "n_records_per_station": {
+      "Ballygunge": 2920,
+      "Belur Math": 2920,
+      "Bidhannagar": 2920,
+      "Fort William": 2920,
+      "Ghusuri": 2920,
+      "Jadavpur": 2920,
+      "Padmapukur": 2920,
+      "Rabindra Bharati University": 2920,
+      "Rabindra Sarobar": 2920,
+      "Victoria": 2920
+    },
+    "train_end": "2023-09-13T09:00:00",
+    "val_end": "2023-11-07T06:00:00",
+    "test_end": "2023-12-31T21:00:00",
+    "feature_cols": [
+      "PM2.5",
+      "AT",
+      "RH",
+      "WS",
+      "Sin_WD",
+      "Cos_WD",
+      "sin_hour",
+      "cos_hour",
+      "sin_month",
+      "cos_month",
+      "Season_Winter",
+      "Season_Spring",
+      "Season_Summer",
+      "Season_Monsoon"
+    ],
+    "target_col": "PM2.5"
+  },
+  "Guwahati": {
+    "city": "Guwahati",
+    "stations": [
+      "IIT Guwahati",
+      "LGBI Airport",
+      "Pan Bazaar",
+      "Railway Colony"
+    ],
+    "coords": {
+      "IIT Guwahati": [
+        26.1917953,
+        91.6957223
+      ],
+      "LGBI Airport": [
+        26.1067231,
+        91.5860575
+      ],
+      "Pan Bazaar": [
+        26.1863084,
+        91.7460556
+      ],
+      "Railway Colony": [
+        26.1799176,
+        91.7831915
+      ]
+    },
+    "n_records_per_station": {
+      "IIT Guwahati": 2920,
+      "LGBI Airport": 2920,
+      "Pan Bazaar": 2920,
+      "Railway Colony": 2920
+    },
+    "train_end": "2023-09-13T09:00:00",
+    "val_end": "2023-11-07T06:00:00",
+    "test_end": "2023-12-31T21:00:00",
+    "feature_cols": [
+      "PM2.5",
+      "AT",
+      "RH",
+      "WS",
+      "Sin_WD",
+      "Cos_WD",
+      "sin_hour",
+      "cos_hour",
+      "sin_month",
+      "cos_month",
+      "Season_Winter",
+      "Season_Spring",
+      "Season_Summer",
+      "Season_Monsoon"
+    ],
+    "target_col": "PM2.5"
+  }
+}

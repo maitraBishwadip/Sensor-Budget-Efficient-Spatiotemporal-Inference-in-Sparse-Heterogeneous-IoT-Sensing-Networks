@@ -21,12 +21,7 @@ env/
 *.swp
 .DS_Store
 
-# Datasets (CPCB data is NOT redistributed under repo license)
-dataset/Delhi*/
-dataset/Kolkata*.csv
-dataset/Guwahati*.csv
-dataset/processed/
-dataset/*.json
+# Datasets are intentionally tracked (kept in the repo) — see "Data access" in README.
 
 # Trained model checkpoints
 models/*.pt
@@ -56,3 +51,13 @@ Thumbs.db
 # Claude Code local state
 .claude/
 CLAUDE.md
+
+# PDFs — papers, thesis, IEEE templates, figure exports (regenerable; not shipped)
+*.pdf
+
+# Markdown — keep ONLY the root README.md; reports/notes stay out of the public repo
+*.md
+!/README.md
+
+# LaTeX manuscript sources are kept out of the public repo
+paper/
