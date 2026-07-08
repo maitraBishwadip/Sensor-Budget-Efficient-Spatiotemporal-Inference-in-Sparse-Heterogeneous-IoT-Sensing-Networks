@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -32,6 +33,8 @@ import torch
 import torch.nn as nn
 
 from src.graph_construction import build_city_graph
+from src.models.gwnet import GraphWaveNet
+from src.models.stgcn import STGCN
 from src.models.stgnn_gat import STGNN_GAT, STGNN_GAT_GRU
 from src.models.stgnn_sage import STGNN_SAGE
 from src.utils import (
@@ -53,7 +56,10 @@ MODELS_DIR = Path("models/gnn")
 RESULTS_DIR = Path("results/gnn")
 
 HISTORY = 8
-HORIZON = 1
+# Forecast horizon in 3-h steps. Default 1 (single next step, the paper's main
+# protocol); the multi-horizon sensitivity study (analysis/horizon_study.py)
+# overrides it via the PM25_HORIZON environment variable before import.
+HORIZON = int(os.environ.get("PM25_HORIZON", "1"))
 HIDDEN = 24
 GAT_DIM = 24
 DROPOUT = 0.1
@@ -88,7 +94,8 @@ FIXED_DROPOUT = 0.15
 # Helpers
 # --------------------------------------------------------------------------- #
 
-def build_backbone(name: str, in_features: int, *, fixed: bool = False) -> nn.Module:
+def build_backbone(name: str, in_features: int, *, fixed: bool = False,
+                   n_nodes: int | None = None) -> nn.Module:
     name = name.lower()
     hd = FIXED_HIDDEN if fixed else HIDDEN
     gd = FIXED_GAT_DIM if fixed else GAT_DIM
@@ -99,6 +106,12 @@ def build_backbone(name: str, in_features: int, *, fixed: bool = False) -> nn.Mo
         return STGNN_GAT_GRU(in_features, hidden_dim=hd, gat_dim=gd, dropout=dp)
     if name == "sage":
         return STGNN_SAGE(in_features, hidden_dim=hd, sage_dim=gd, dropout=dp)
+    if name == "stgcn":
+        return STGCN(in_features, hidden_dim=hd, history=HISTORY, dropout=dp)
+    if name == "gwnet":
+        if n_nodes is None:
+            raise ValueError("gwnet needs n_nodes (its adaptive adjacency is |V|-specific)")
+        return GraphWaveNet(in_features, n_nodes=n_nodes, dropout=dp)
     raise ValueError(f"unknown backbone: {name}")
 
 
@@ -210,13 +223,14 @@ def train_base_gnn(
     backbone: str = "gat",
     *,
     fixed: bool = False,
+    ckpt_extra: str = "",
 ) -> Tuple[Dict[str, float], Path]:
     """Train one source-only ST-GNN. With `fixed=True` switches to per-city LSTM-
     grade hyperparameters, mask-based windowing, and climatology-aware eval.
     """
     set_seed(42)
     F = city.feature_tensor.shape[-1]
-    model = build_backbone(backbone, F, fixed=fixed).to(DEVICE)
+    model = build_backbone(backbone, F, fixed=fixed, n_nodes=len(city.coords)).to(DEVICE)
     edge_index, edge_weight = build_city_graph(city.coords, strategy=GRAPH_STRATEGY, k=KNN_K)
     print(f"[{city.city}/{backbone}{' /FIX' if fixed else ''}] graph: |V|={len(city.coords)}  |E|={edge_index.shape[1]}  "
           f"params={sum(p.numel() for p in model.parameters())}")
@@ -245,7 +259,7 @@ def train_base_gnn(
     loss_fn = nn.MSELoss()
     best_val = -1e9
     patience_left = patience if patience is not None else None
-    ckpt_suffix = "_fixed" if fixed else ""
+    ckpt_suffix = ("_fixed" if fixed else "") + ckpt_extra
     ckpt = MODELS_DIR / f"{backbone}_source_{city.city}{ckpt_suffix}.pt"
 
     for ep in range(epochs):
@@ -277,7 +291,10 @@ def train_base_gnn(
     return test_metrics, ckpt
 
 
-def load_all_cities(*, fixed: bool = False) -> Dict[str, CityTensors]:
+def load_all_cities(*, fixed: bool = False, chrono: bool = False) -> Dict[str, CityTensors]:
+    """`chrono=True` keeps the fixed-protocol climatology residual but swaps the
+    interleaved split for the chronological 70/15/15 block boundaries from
+    `metadata.json` (the protocol-sensitivity condition; see paper §V)."""
     with open(PROCESSED_DIR / "metadata.json") as fh:
         metas = json.load(fh)
     cities: Dict[str, CityTensors] = {}
@@ -287,7 +304,7 @@ def load_all_cities(*, fixed: bool = False) -> Dict[str, CityTensors]:
             metas[name],
             metas[name]["feature_cols"],
             metas[name]["target_col"],
-            interleaved_split=fixed,
+            interleaved_split=fixed and not chrono,
             climatology_residual=fixed,
         )
     return cities
@@ -296,12 +313,14 @@ def load_all_cities(*, fixed: bool = False) -> Dict[str, CityTensors]:
 def main(args):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    cities = load_all_cities(fixed=args.fixed)
+    cities = load_all_cities(fixed=args.fixed, chrono=args.chrono)
+    ckpt_extra = "_chrono" if args.chrono else ""
     results = {}
-    for name in ["Delhi", "Kolkata", "Guwahati"]:
-        metrics, _ = train_base_gnn(cities[name], backbone=args.backbone, fixed=args.fixed)
+    for name in [c for c in ["Delhi", "Kolkata", "Guwahati"] if c in args.cities.split(",")]:
+        metrics, _ = train_base_gnn(cities[name], backbone=args.backbone, fixed=args.fixed,
+                                    ckpt_extra=ckpt_extra)
         results[name] = metrics
-    suffix = "_fixed" if args.fixed else ""
+    suffix = ("_fixed" if args.fixed else "") + ckpt_extra
     out = RESULTS_DIR / f"gnn_{args.backbone}_source_only{suffix}.json"
     write_results(out, results)
     print(f"\nwrote {out}")
@@ -309,7 +328,12 @@ def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--backbone", choices=["gat", "gatgru", "sage"], default="gat")
+    p.add_argument("--backbone", choices=["gat", "gatgru", "sage", "stgcn", "gwnet"], default="gat")
     p.add_argument("--fixed", action="store_true",
                    help="Enable interleaved split + climatology residual + per-city LSTM-grade recipe.")
+    p.add_argument("--chrono", action="store_true",
+                   help="With --fixed: chronological 70/15/15 block split instead of interleaved "
+                        "(protocol-sensitivity study). Checkpoints/results get a _chrono suffix.")
+    p.add_argument("--cities", default="Delhi,Kolkata,Guwahati",
+                   help="Comma-separated subset of cities to train.")
     main(p.parse_args())

@@ -7,10 +7,15 @@ GNN-vs-LSTM comparison at unsensored nodes apples-to-apples: both train on the s
 are scored on the identical unsensored set; the GNN borrows PM2.5 from neighbours via the graph,
 the LSTM (station-independent) can use only local meteorology.
 
-Run: python -u -m analysis.lstm_vsense_peru
+With --chrono, uses the chronological block split (Delhi only; the one-year
+deployments are untrainable under it — paper §VI-F) and compares against
+results/gnn_vsense/vsense_gat_chrono.json.
+
+Run: python -u -m analysis.lstm_vsense_peru [--chrono]
 """
 from __future__ import annotations
 
+import argparse
 import copy
 import dataclasses
 import json
@@ -48,11 +53,15 @@ def maskpm(X: np.ndarray) -> np.ndarray:
     X = X.copy(); X[:, :, PM25] = 0.0; return X       # met-only (no sensor at this location)
 
 
-def main():
-    cities = load_all_cities(fixed=True)
-    gnn = json.load(open("results/gnn_vsense/vsense_gat.json"))
+def main(chrono: bool = False):
+    tag = "_chrono" if chrono else ""
+    configs = [("Delhi", 8), ("Delhi", 16)] if chrono else CONFIGS
+    cities = load_all_cities(fixed=True, chrono=chrono)
+    gnn_path = Path(f"results/gnn_vsense/vsense_gat{tag}.json")
+    gnn = json.load(open(gnn_path)) if gnn_path.exists() else {}
+    out_path = Path(f"results/lstm/lstm_vsense_peru{tag}.json")
     out = {}
-    for cname, k in CONFIGS:
+    for cname, k in configs:
         city, cfg = cities[cname], CITY_TRAIN_CFG[cname]
         N = city.feature_tensor.shape[1]
         perm = np.random.default_rng(0).permutation(N)        # SAME split as GNN virtual sensing
@@ -87,7 +96,7 @@ def main():
         g = gnn.get(f"{cname}|k={k}|lam=0.0", {}).get("R2")
         out[f"{cname}|k={k}"] = {"lstm_metonly_U": te, "gnn_U": g,
                                  "n_sensored": int(k), "n_unsensored": int(len(U))}
-        write_results(Path("results/lstm/lstm_vsense_peru.json"), out)
+        write_results(out_path, out)
         print(f"  ==> {cname} k={k}: LSTM met-only @U test R2={te['R2']:.4f} MAE={te['MAE']:.3f} "
               f"(predict {len(U)} unsensored)")
 
@@ -95,14 +104,17 @@ def main():
     print("PER-U VIRTUAL SENSING — GNN (neighbours) vs LSTM (met-only), same unsensored nodes")
     print("=" * 64)
     print("  config            LSTM@U   GNN@U    GNN-LSTM")
-    for cname, k in CONFIGS:
+    for cname, k in configs:
         r = out[f"{cname}|k={k}"]
         l, g = r["lstm_metonly_U"]["R2"], r["gnn_U"]
         diff = "n/a" if g is None else f"{g - l:+.4f}"
         gs = "n/a" if g is None else f"{g:.4f}"
         print(f"  {cname+' k='+str(k):16s}  {l:.4f}   {gs}   {diff}")
-    print("\nwrote results/lstm/lstm_vsense_peru.json")
+    print(f"\nwrote {out_path}")
 
 
 if __name__ == "__main__":
-    main()
+    p = argparse.ArgumentParser()
+    p.add_argument("--chrono", action="store_true",
+                   help="Chronological block split (Delhi configs only).")
+    main(chrono=p.parse_args().chrono)

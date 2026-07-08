@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 from typing import Dict, Tuple
@@ -53,7 +54,9 @@ MODELS_DIR = Path("models/lstm")
 RESULTS_DIR = Path("results/lstm")
 
 HISTORY = 8         # 8 x 3h = 24h history (matches thesis)
-HORIZON = 1         # 1 x 3h = 3h forecast (matches thesis)
+# 1 x 3h = 3h forecast (matches thesis). The multi-horizon sensitivity study
+# (analysis/horizon_study.py) overrides via PM25_HORIZON before import.
+HORIZON = int(os.environ.get("PM25_HORIZON", "1"))
 HIDDEN = 64
 LAYERS = 2
 DROPOUT = 0.2
@@ -192,7 +195,8 @@ def evaluate(
     return all_metrics(y_true, y_pred)
 
 
-def train_source_only(cities: Dict[str, CityTensors], target_city: str, *, fixed: bool = False) -> Dict[str, float]:
+def train_source_only(cities: Dict[str, CityTensors], target_city: str, *, fixed: bool = False,
+                      ckpt_extra: str = "") -> Dict[str, float]:
     """Train an LSTM from scratch on `target_city` (thesis Table 5.1 cell).
     With `fixed=True`, use interleaved split + climatology residual."""
     cfg = CITY_TRAIN_CFG[target_city]
@@ -232,7 +236,7 @@ def train_source_only(cities: Dict[str, CityTensors], target_city: str, *, fixed
 
     best_val_r2 = -1e9
     patience_left = cfg["patience"]
-    suffix = "_fixed" if fixed else ""
+    suffix = ("_fixed" if fixed else "") + ckpt_extra
     ckpt = MODELS_DIR / f"lstm_source_{target_city}{suffix}.pt"
     epochs = cfg["epochs"]
     print(f"   training for up to {epochs} epochs with patience={cfg['patience']}")
@@ -273,8 +277,12 @@ def train_transfer(
     d_pct: float,
     *,
     fixed: bool = False,
+    ckpt_extra: str = "",
+    subsample: str = "random",
 ) -> Dict[str, float]:
-    """LSTM Variant-A TL: load source checkpoint, fine-tune on d% of target."""
+    """LSTM Variant-A TL: load source checkpoint, fine-tune on d% of target.
+    `subsample="prefix"` keeps the first d% of sequences in time order (true
+    cold start) instead of the seeded uniform draw."""
     ft_cfg = CITY_FT_CFG[target]
     print(f"\n{'='*68}\n[LSTM TL {source} -> {target} d={d_pct:.0%}{' /FIX' if fixed else ''}]  ft_cfg={ft_cfg}\n{'='*68}")
     set_seed(42)
@@ -285,7 +293,7 @@ def train_transfer(
     assert F == tgt.feature_tensor.shape[-1]
 
     model = LSTMForecaster(F, HIDDEN, LAYERS, DROPOUT).to(DEVICE)
-    suffix = "_fixed" if fixed else ""
+    suffix = ("_fixed" if fixed else "") + ckpt_extra
     src_ckpt = MODELS_DIR / f"lstm_source_{source}{suffix}.pt"
     if not src_ckpt.exists():
         raise RuntimeError(f"missing source checkpoint: {src_ckpt}")
@@ -304,12 +312,15 @@ def train_transfer(
         X_te, Y_te = build_station_dataset(tgt, tgt.val_end_idx, tgt.test_end_idx)
         C_va = C_te = None
 
-    rng = np.random.default_rng(42)
     n_keep = max(1, int(d_pct * X_tgt_tr.shape[0]))
-    keep = rng.choice(X_tgt_tr.shape[0], size=n_keep, replace=False)
-    keep.sort()
+    if subsample == "prefix":
+        keep = np.arange(n_keep)   # first d% of sequences in time order
+    else:
+        rng = np.random.default_rng(42)
+        keep = rng.choice(X_tgt_tr.shape[0], size=n_keep, replace=False)
+        keep.sort()
     X_ft, Y_ft = X_tgt_tr[keep], Y_tgt_tr[keep]
-    print(f"   fine-tune={X_ft.shape}  val={X_va.shape}  test={X_te.shape}")
+    print(f"   fine-tune={X_ft.shape} [{subsample}]  val={X_va.shape}  test={X_te.shape}")
 
     opt = torch.optim.Adam(model.parameters(), lr=ft_cfg["lr"], weight_decay=WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", factor=0.5, patience=3)
@@ -322,7 +333,8 @@ def train_transfer(
 
     best_val_r2 = -1e9
     patience_left = ft_cfg["patience"]
-    ckpt = MODELS_DIR / f"lstm_tl_{source}_to_{target}_d{int(d_pct*100)}{suffix}.pt"
+    tl_tag = suffix + ("_prefix" if subsample == "prefix" else "")
+    ckpt = MODELS_DIR / f"lstm_tl_{source}_to_{target}_d{int(d_pct*100)}{tl_tag}.pt"
     epochs = ft_cfg["epochs"]
     print(f"   fine-tuning for up to {epochs} epochs with patience={ft_cfg['patience']}")
     for ep in range(epochs):
@@ -358,9 +370,9 @@ def train_transfer(
 # Driver
 # --------------------------------------------------------------------------- #
 
-def load_all_cities(*, fixed: bool = False) -> Dict[str, CityTensors]:
+def load_all_cities(*, fixed: bool = False, chrono: bool = False) -> Dict[str, CityTensors]:
     print("="*68)
-    print(f"LOADING ALL CITIES{' (FIXED PROTOCOL)' if fixed else ''}")
+    print(f"LOADING ALL CITIES{' (FIXED PROTOCOL)' if fixed else ''}{' (CHRONO SPLIT)' if chrono else ''}")
     print("="*68)
     with open(PROCESSED_DIR / "metadata.json") as fh:
         metas = json.load(fh)
@@ -372,7 +384,7 @@ def load_all_cities(*, fixed: bool = False) -> Dict[str, CityTensors]:
             metas[name],
             metas[name]["feature_cols"],
             metas[name]["target_col"],
-            interleaved_split=fixed,
+            interleaved_split=fixed and not chrono,
             climatology_residual=fixed,
         )
         print(
@@ -403,31 +415,37 @@ def merge_into_existing_results(path: Path, key: str, value: dict) -> None:
 def main(args):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    cities = load_all_cities(fixed=args.fixed)
-    suffix = "_fixed" if args.fixed else ""
+    cities = load_all_cities(fixed=args.fixed, chrono=args.chrono)
+    ckpt_extra = "_chrono" if args.chrono else ""
+    suffix = ("_fixed" if args.fixed else "") + ckpt_extra \
+        + ("_prefix" if args.subsample == "prefix" else "")
     results_path = RESULTS_DIR / f"lstm_results{suffix}.json"
 
     if args.mode in ("source", "all"):
         print(f"\n{'#'*68}\n# STAGE 1: SOURCE-ONLY LSTM (per-city)\n{'#'*68}")
-        for c in ["Delhi", "Kolkata", "Guwahati"]:
-            metrics = train_source_only(cities, c, fixed=args.fixed)
+        for c in [c for c in ["Delhi", "Kolkata", "Guwahati"] if c in args.cities.split(",")]:
+            metrics = train_source_only(cities, c, fixed=args.fixed, ckpt_extra=ckpt_extra)
             merge_into_existing_results(results_path, f"source:{c}", metrics)
             print(f"\n   ==> merged source_only[{c}] into {results_path}")
 
     if args.mode in ("tl", "all"):
         print(f"\n{'#'*68}\n# STAGE 2: TRANSFER-LEARNING LSTM\n{'#'*68}")
-        pairs = [
-            ("Delhi", "Kolkata"),
-            ("Delhi", "Guwahati"),
-            ("Kolkata", "Guwahati"),
-            ("Guwahati", "Kolkata"),
-            ("Kolkata", "Delhi"),
-            ("Guwahati", "Delhi"),
-        ]
-        d_values = [0.15, 0.30, 0.45, 0.60]
+        if args.pairs:
+            pairs = [tuple(p.split(">")) for p in args.pairs.split(",")]
+        else:
+            pairs = [
+                ("Delhi", "Kolkata"),
+                ("Delhi", "Guwahati"),
+                ("Kolkata", "Guwahati"),
+                ("Guwahati", "Kolkata"),
+                ("Kolkata", "Delhi"),
+                ("Guwahati", "Delhi"),
+            ]
+        d_values = [int(x) / 100.0 for x in args.d.split(",")] if args.d else [0.15, 0.30, 0.45, 0.60]
         for src, tgt in pairs:
             for d in d_values:
-                metrics = train_transfer(cities, src, tgt, d, fixed=args.fixed)
+                metrics = train_transfer(cities, src, tgt, d, fixed=args.fixed,
+                                         ckpt_extra=ckpt_extra, subsample=args.subsample)
                 key = f"{src}->{tgt}@{int(d*100)}"
                 merge_into_existing_results(results_path, f"transfer:{key}", metrics)
                 print(f"   ==> merged transfer[{key}] into {results_path}")
@@ -440,4 +458,11 @@ if __name__ == "__main__":
     p.add_argument("--mode", choices=["source", "tl", "all"], default="all")
     p.add_argument("--fixed", action="store_true",
                    help="Enable interleaved split + climatology residual.")
+    p.add_argument("--chrono", action="store_true",
+                   help="With --fixed: chronological 70/15/15 block split instead of interleaved.")
+    p.add_argument("--subsample", choices=["random", "prefix"], default="random",
+                   help="How the d%% fine-tune keep-set is drawn (prefix = true cold start).")
+    p.add_argument("--cities", default="Delhi,Kolkata,Guwahati")
+    p.add_argument("--pairs", default="", help='Comma list of ordered pairs "Src>Tgt".')
+    p.add_argument("--d", default="", help="Comma list of integer d percentages, e.g. 15,30.")
     main(p.parse_args())

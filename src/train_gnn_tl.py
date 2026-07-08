@@ -116,13 +116,27 @@ def transfer_variant_a(
     *,
     fixed: bool = False,
     run_baselines: bool = True,
+    src_ckpt_extra: str = "",
+    subsample: str = "random",
+    seed: int = 42,
+    freeze_frac: float = FREEZE_FRAC,
 ) -> Dict[str, Dict[str, float]]:
     """Returns a dict with three sub-dicts: `zero_shot`, `scratch`, `transfer`.
 
     Knowledge transfer is considered "real" iff
         transfer.R2 > zero_shot.R2  AND  transfer.R2 > scratch.R2.
+
+    `src_ckpt_extra` selects an alternative source checkpoint (e.g. "_chrono").
+    `subsample` chooses how the d% fine-tune keep-set is drawn: "random" (seeded
+    uniform draw over the whole training year — the label-efficiency condition)
+    or "prefix" (the first d% of windows in time order — the true cold-start
+    condition, where a new deployment has only a contiguous history prefix).
+    `seed` varies training stochasticity (init, shuffling) for seed sweeps; the
+    d% keep-set draw stays fixed so every seed fine-tunes on identical data.
+    `freeze_frac` sets the fraction of fine-tune epochs for which the input
+    temporal block t1 stays frozen (sensitivity study; default FREEZE_FRAC).
     """
-    set_seed(42)
+    set_seed(seed)
     src = cities[source]
     tgt = cities[target]
     F = src.feature_tensor.shape[-1]
@@ -138,7 +152,7 @@ def transfer_variant_a(
           f"avg_deg={edge_index.shape[1]/len(tgt.coords):.2f}  strategy={GRAPH_STRATEGY}")
 
     # --- Build target full training set (with climatology when fixed) ---
-    src_suffix = "_fixed" if fixed else ""
+    src_suffix = ("_fixed" if fixed else "") + src_ckpt_extra
     src_ckpt = SRC_MODELS_DIR / f"{backbone}_source_{source}{src_suffix}.pt"
     if not src_ckpt.exists():
         raise RuntimeError(f"missing source checkpoint: {src_ckpt}")
@@ -173,17 +187,25 @@ def transfer_variant_a(
 
     if X_full.shape[0] == 0:
         raise RuntimeError(f"no target training windows for {target}")
-    rng = np.random.default_rng(42)
-    keep = rng.choice(X_full.shape[0], size=max(1, int(d_pct * X_full.shape[0])), replace=False)
-    keep.sort()
+    n_keep = max(1, int(d_pct * X_full.shape[0]))
+    if subsample == "prefix":
+        # True cold start: only the first d% of the target's history, in time order.
+        keep = np.arange(n_keep)
+    else:
+        rng = np.random.default_rng(42)
+        keep = rng.choice(X_full.shape[0], size=n_keep, replace=False)
+        keep.sort()
     X_ft, Y_ft = X_full[keep], Y_full[keep]
-    print(f"  fine-tune set: {X_ft.shape}  (val={X_va.shape}  test={X_te.shape})")
+    print(f"  fine-tune set: {X_ft.shape} [{subsample}]  (val={X_va.shape}  test={X_te.shape})")
 
     ds = torch.utils.data.TensorDataset(torch.from_numpy(X_ft).float(), torch.from_numpy(Y_ft).float())
     train_loader = torch.utils.data.DataLoader(ds, batch_size=ft_bs, shuffle=True, num_workers=0)
 
-    ckpt_suffix = "_fixed" if fixed else ""
-    freeze_t1_for = int(epochs * FREEZE_FRAC)
+    ckpt_suffix = (("_fixed" if fixed else "") + src_ckpt_extra
+                   + ("_prefix" if subsample == "prefix" else "")
+                   + (f"_seed{seed}" if seed != 42 else "")
+                   + (f"_fz{int(round(freeze_frac * 100))}" if freeze_frac != FREEZE_FRAC else ""))
+    freeze_t1_for = int(epochs * freeze_frac)
 
     # =========================================================
     # 0. Zero-shot: load source weights, evaluate target test
@@ -201,7 +223,7 @@ def transfer_variant_a(
     transfer_model = build_backbone(backbone, F, fixed=fixed).to(DEVICE)
     load_checkpoint(transfer_model, src_ckpt)
     tl_ckpt = MODELS_DIR / f"{backbone}_tl_{source}_to_{target}_d{int(d_pct*100)}{ckpt_suffix}.pt"
-    set_seed(42)
+    set_seed(seed)
     print(f"  [1] transfer  (source -> fine-tune {epochs} ep, freeze t1 for {freeze_t1_for})")
     _fit_one_run(
         transfer_model, train_loader, edge_index, edge_weight,
@@ -221,7 +243,7 @@ def transfer_variant_a(
     if run_baselines:
         scratch_model = build_backbone(backbone, F, fixed=fixed).to(DEVICE)  # fresh weights
         scratch_ckpt = MODELS_DIR / f"{backbone}_scratch_{target}_d{int(d_pct*100)}{ckpt_suffix}.pt"
-        set_seed(42)
+        set_seed(seed)
         print(f"  [2] scratch   (random init, fine-tune {epochs} ep, no t1 freeze)")
         _fit_one_run(
             scratch_model, train_loader, edge_index, edge_weight,
@@ -252,9 +274,12 @@ def transfer_variant_a(
 def main(args):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    cities = load_all_cities(fixed=args.fixed)
+    cities = load_all_cities(fixed=args.fixed, chrono=args.chrono)
+    src_ckpt_extra = "_chrono" if args.chrono else ""
 
-    if args.full:
+    if args.pairs:
+        pairs = [tuple(p.split(">")) for p in args.pairs.split(",")]
+    elif args.full:
         # All six ordered (source, target) pairs — exactly the layout of thesis Table 5.2.
         pairs = [
             ("Delhi", "Kolkata"),
@@ -264,34 +289,46 @@ def main(args):
             ("Guwahati", "Delhi"),
             ("Delhi", "Guwahati"),
         ]
-        d_values = [0.15, 0.30, 0.45, 0.60]
     else:
         pairs = [
             ("Delhi", "Kolkata"),
             ("Delhi", "Guwahati"),
             ("Kolkata", "Guwahati"),
         ]
+    if args.d:
+        d_values = [int(x) / 100.0 for x in args.d.split(",")]
+    elif args.full or args.pairs:
+        d_values = [0.15, 0.30, 0.45, 0.60]
+    else:
         d_values = [0.30, 0.60]
 
+    tag = (src_ckpt_extra + ("_prefix" if args.subsample == "prefix" else "")
+           + (f"_seed{args.seed}" if args.seed != 42 else "")
+           + (f"_fz{int(round(args.freeze_frac * 100))}" if args.freeze_frac != FREEZE_FRAC else ""))
+    suffix = ("_fixed" if args.fixed else "") + tag
+    out = RESULTS_DIR / f"variantA_{args.backbone}{suffix}.json"
+
     print("=" * 68)
-    print(f"GNN TL run -- backbone={args.backbone}  fixed={args.fixed}  full={args.full}")
-    print(f"Pairs ({len(pairs)}): {', '.join(f'{s[0]}->{t[0]}' for s,t in pairs)}")
+    print(f"GNN TL run -- backbone={args.backbone}  fixed={args.fixed}  chrono={args.chrono}  "
+          f"subsample={args.subsample}")
+    print(f"Pairs ({len(pairs)}): {', '.join(f'{s}->{t}' for s, t in pairs)}")
     print(f"d-values: {d_values}")
-    print(f"Total cells: {len(pairs)*len(d_values)}")
+    print(f"Total cells: {len(pairs)*len(d_values)}  ->  {out}")
     print("=" * 68)
 
     results = {}
+    if out.exists():
+        results = json.loads(out.read_text())   # resume/merge across targeted runs
     for src, tgt in pairs:
         for d in d_values:
             key = f"{src}->{tgt}@{int(d*100)}"
-            results[key] = transfer_variant_a(cities, src, tgt, d, backbone=args.backbone, fixed=args.fixed)
+            results[key] = transfer_variant_a(
+                cities, src, tgt, d, backbone=args.backbone, fixed=args.fixed,
+                src_ckpt_extra=src_ckpt_extra, subsample=args.subsample,
+                seed=args.seed, freeze_frac=args.freeze_frac)
             # Write incrementally so a mid-run interruption doesn't lose everything.
-            suffix = "_fixed" if args.fixed else ""
-            out = RESULTS_DIR / f"variantA_{args.backbone}{suffix}.json"
             write_results(out, results)
 
-    suffix = "_fixed" if args.fixed else ""
-    out = RESULTS_DIR / f"variantA_{args.backbone}{suffix}.json"
     write_results(out, results)
     print(f"\nwrote {out}")
 
@@ -303,4 +340,20 @@ if __name__ == "__main__":
                    help="Use interleaved-split + climatology-residual source checkpoint and recipe.")
     p.add_argument("--full", action="store_true",
                    help="Run all 6 (source,target) pairs x 4 d-fractions (24 cells). Default is 3 pairs x 2.")
+    p.add_argument("--chrono", action="store_true",
+                   help="Chronological block split + _chrono source checkpoints (protocol study).")
+    p.add_argument("--subsample", choices=["random", "prefix"], default="random",
+                   help="How the d%% fine-tune keep-set is drawn (prefix = true cold start).")
+    p.add_argument("--pairs", default="",
+                   help='Comma list of ordered pairs "Src>Tgt" to run (overrides --full).')
+    p.add_argument("--d", default="",
+                   help="Comma list of integer d percentages, e.g. 15,30.")
+    p.add_argument("--seed", type=int, default=42,
+                   help="Training seed (init/shuffle). The d%% keep-set draw stays "
+                        "fixed, so seed sweeps compare on identical fine-tune data. "
+                        "Non-default seeds tag checkpoints/results with _seed{N}.")
+    p.add_argument("--freeze-frac", type=float, default=FREEZE_FRAC,
+                   help="Fraction of fine-tune epochs with the input temporal block "
+                        "frozen (sensitivity study). Non-default values tag "
+                        "checkpoints/results with _fz{pct}.")
     main(p.parse_args())

@@ -20,6 +20,7 @@ Run:  python -u -m src.train_gnn_vsense --fixed
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from pathlib import Path
 from typing import Dict, List
 
@@ -27,7 +28,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.graph_construction import build_city_graph
+from src.graph_construction import build_city_graph, pairwise_distance_matrix
 from src.models.physics import SpatialPhysics, build_diffusion_weights, build_geometry
 from src.train_gnn import (
     DEVICE, GRAPH_STRATEGY, HISTORY, HORIZON, KNN_K,
@@ -44,6 +45,25 @@ MODELS_DIR = Path("models/gnn_vsense")
 RESULTS_DIR = Path("results/gnn_vsense")
 EPOCHS, LR, BATCH, PATIENCE = 40, 1e-3, 128, 8
 P_MASK = 0.5                      # fraction of S also masked each step (reconstruction signal)
+MET_CHANNELS = [1, 2, 3, 4, 5]    # AT, RH, WS, Sin_WD, Cos_WD (station-specific meteorology)
+IDW_P = 2.0                       # inverse-distance power for interpolated meteorology
+
+
+def _interpolate_met_at_U(city: CityTensors, S: np.ndarray, U: np.ndarray) -> CityTensors:
+    """Replace station meteorology at the unsensored nodes U with the IDW
+    (p = 2) interpolation of the sensored nodes' meteorology — the realistic
+    condition for a location with no physical instrument at all. Time/season
+    encodings are node-independent and untouched. The feature scaler is shared
+    across nodes per channel, so interpolating in z-space equals z-scoring the
+    raw-space interpolation."""
+    D = pairwise_distance_matrix(city.coords).astype(np.float64)
+    d = D[np.ix_(U, S)]
+    w = 1.0 / np.maximum(d, 1e-6) ** IDW_P
+    w = (w / np.maximum(w.sum(axis=1, keepdims=True), 1e-12)).astype(np.float32)   # [|U|,|S|]
+    feat = city.feature_tensor.copy()
+    for ch in MET_CHANNELS:
+        feat[:, U, ch] = feat[:, S, ch] @ w.T
+    return dataclasses.replace(city, feature_tensor=feat)
 
 
 def _eval_at_nodes(model, X, Y, C, ei, ew, scaler, eval_nodes, mask_nodes, device) -> Dict[str, float]:
@@ -61,12 +81,16 @@ def _eval_at_nodes(model, X, Y, C, ei, ew, scaler, eval_nodes, mask_nodes, devic
 
 def virtual_sense(city: CityTensors, k: int, lambda_phys: float, *, backbone="gat",
                   wind_consts=None, sy=1.0, my=0.0, seed_split=0,
-                  phys_use_adv=True, phys_use_diff=True) -> Dict:
+                  phys_use_adv=True, phys_use_diff=True,
+                  met_mode: str = "station", ckpt_extra: str = "") -> Dict:
     set_seed(42)
     N = city.feature_tensor.shape[1]
     perm = np.random.default_rng(seed_split).permutation(N)
     S = np.sort(perm[:k]); U = np.sort(perm[k:])
     mode = "both" if (phys_use_adv and phys_use_diff) else ("adv" if phys_use_adv else "diff")
+    if met_mode == "idw":
+        # Realistic-met condition: at U, only interpolated meteorology exists.
+        city = _interpolate_met_at_U(city, S, U)
 
     ei, ew = build_city_graph(city.coords, strategy=GRAPH_STRATEGY, k=KNN_K)
     bearing, dist = build_geometry(city.coords)
@@ -90,7 +114,7 @@ def virtual_sense(city: CityTensors, k: int, lambda_phys: float, *, backbone="ga
     S_t = torch.as_tensor(S, device=DEVICE)
     nR = max(1, int(P_MASK * len(S)))
 
-    ckpt = MODELS_DIR / f"{backbone}_vsense_{city.city}_k{k}_s{seed_split}_{mode}_lam{lambda_phys}.pt"
+    ckpt = MODELS_DIR / f"{backbone}_vsense_{city.city}_k{k}_s{seed_split}_{mode}_lam{lambda_phys}{ckpt_extra}.pt"
     best_val, patience_left = -1e9, PATIENCE
     rng = np.random.default_rng(123)
     for ep in range(EPOCHS):
@@ -125,16 +149,21 @@ def virtual_sense(city: CityTensors, k: int, lambda_phys: float, *, backbone="ga
     te = _eval_at_nodes(model, X_te, Y_te, C_te, ei, ew, city.target_scaler, U, U, DEVICE)
     print(f"  [{city.city} k={k}/{N} lam={lambda_phys}] U-node test R2={te['R2']:.4f} "
           f"MAE={te['MAE']:.3f}  (val R2={best_val:.4f}, coeffs={phys.coeffs()})")
-    return {"R2": te["R2"], "MAE": te["MAE"], "val_R2": best_val, "k": k, "N": int(N),
+    return {"R2": te["R2"], "MAE": te["MAE"], "RMSE": te["RMSE"], "val_R2": best_val,
+            "k": k, "N": int(N),
             "lambda": lambda_phys, "n_unsensored": int(len(U)), "coeffs": phys.coeffs()}
 
 
 def main(args):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    cities = load_all_cities(fixed=args.fixed)
-    grid = {"Delhi": [8, 16], "Kolkata": [4]}
-    lambdas = [0.0, 0.2, 0.5]
+    cities = load_all_cities(fixed=args.fixed, chrono=args.chrono)
+    # Chronological evaluation is only well-posed on the multi-year deployment
+    # (see paper §VI-F), so the chrono study runs Delhi alone.
+    grid = {"Delhi": [8, 16]} if args.chrono else {"Delhi": [8, 16], "Kolkata": [4]}
+    lambdas = [float(x) for x in args.lam.split(",")]
+    tag = ("_idwmet" if args.met == "idw" else "") + ("_chrono" if args.chrono else "")
+    out = RESULTS_DIR / f"vsense_{args.backbone}{tag}.json"
     results = {}
     for cname, ks in grid.items():
         c = cities[cname]
@@ -144,10 +173,12 @@ def main(args):
         sy, my = float(c.target_scaler.scale_[0]), float(c.target_scaler.mean_[0])
         for k in ks:
             for lam in lambdas:
-                print(f"\n##### Virtual sensing {cname} k={k} lambda={lam} #####")
+                print(f"\n##### Virtual sensing {cname} k={k} lambda={lam} met={args.met}"
+                      f"{' chrono' if args.chrono else ''} #####")
                 results[f"{cname}|k={k}|lam={lam}"] = virtual_sense(
-                    c, k, lam, backbone=args.backbone, wind_consts=wind_consts, sy=sy, my=my)
-                write_results(RESULTS_DIR / f"vsense_{args.backbone}.json", results)
+                    c, k, lam, backbone=args.backbone, wind_consts=wind_consts, sy=sy, my=my,
+                    met_mode=args.met, ckpt_extra=tag)
+                write_results(out, results)
 
     print("\n" + "=" * 64)
     print("VIRTUAL-SENSING SUMMARY - R2 at UNSENSORED nodes; dR2 = physics minus data-only")
@@ -162,11 +193,19 @@ def main(args):
                 rl = results[f"{cname}|k={k}|lam={lam}"]["R2"]
                 line += f"   dR2(lam={lam})={rl - r0:+.4f}"
             print(line)
-    print(f"\nwrote {RESULTS_DIR / f'vsense_{args.backbone}.json'}")
+    print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--backbone", choices=["gat", "sage"], default="gat")
     p.add_argument("--fixed", action="store_true")
+    p.add_argument("--met", choices=["station", "idw"], default="station",
+                   help="Meteorology at unsensored nodes: co-located station data "
+                        "(optimistic bound) or IDW-interpolated from the sensored set "
+                        "(realistic deployment-shortfall condition).")
+    p.add_argument("--chrono", action="store_true",
+                   help="Chronological block split (protocol study; Delhi only).")
+    p.add_argument("--lam", default="0.0,0.2,0.5",
+                   help="Comma list of physics weights; the met/chrono studies use 0.0.")
     main(p.parse_args())

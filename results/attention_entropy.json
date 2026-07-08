@@ -1,0 +1,137 @@
+{
+  "Delhi (source)": {
+    "checkpoint": "models\\gnn\\gat_source_Delhi_fixed.pt",
+    "N": 40,
+    "graph_instances": 512,
+    "logw_min": -6.910749435424805,
+    "logw_max": -0.01902582310140133,
+    "gat1": {
+      "ent_full": 0.9346234856113311,
+      "ent_dist": 0.9350917050915379,
+      "ent_feat": 0.9987876011479285,
+      "std_feat": 0.04368093255306444,
+      "tv": 0.015519635361288824,
+      "argmax_shift": 0.1743951612903226,
+      "std_dist": 0.459337426409606,
+      "std_ratio_feat_over_dist": 0.09509552246699084
+    },
+    "gat2": {
+      "ent_full": 0.9286278505479136,
+      "ent_dist": 0.9350917050915379,
+      "ent_feat": 0.9958817401239949,
+      "std_feat": 0.09608667163598922,
+      "tv": 0.029313271715035363,
+      "argmax_shift": 0.24974798387096775,
+      "std_dist": 0.459337426409606,
+      "std_ratio_feat_over_dist": 0.20918537465376408
+    }
+  },
+  "Kolkata (source)": {
+    "checkpoint": "models\\gnn\\gat_source_Kolkata_fixed.pt",
+    "N": 10,
+    "graph_instances": 512,
+    "logw_min": -1.3219190835952759,
+    "logw_max": -0.026297368109226227,
+    "gat1": {
+      "ent_full": 0.9546190202236176,
+      "ent_dist": 0.9769872228304545,
+      "ent_feat": 0.9841213425000509,
+      "std_feat": 0.17340182637174925,
+      "tv": 0.06865660970409711,
+      "argmax_shift": 0.3531901041666667,
+      "std_dist": 0.30346953123807907,
+      "std_ratio_feat_over_dist": 0.5713978127040088
+    },
+    "gat2": {
+      "ent_full": 0.9593892792860667,
+      "ent_dist": 0.9769872228304545,
+      "ent_feat": 0.9803012808163961,
+      "std_feat": 0.23401141166687012,
+      "tv": 0.08824304242928822,
+      "argmax_shift": 0.3600260416666667,
+      "std_dist": 0.30346953123807907,
+      "std_ratio_feat_over_dist": 0.7711199563005967
+    }
+  },
+  "Guwahati (source)": {
+    "checkpoint": "models\\gnn\\gat_source_Guwahati_fixed.pt",
+    "N": 4,
+    "graph_instances": 512,
+    "logw_min": -9.069084167480469,
+    "logw_max": -0.28473037481307983,
+    "gat1": {
+      "ent_full": 0.49833596497774124,
+      "ent_dist": 0.49732986092567444,
+      "ent_feat": 0.9842805117368698,
+      "std_feat": 0.14357280917465687,
+      "tv": 0.017761304043233395,
+      "argmax_shift": 0.0244140625,
+      "std_dist": 3.175660341978073,
+      "std_ratio_feat_over_dist": 0.045210379484484614
+    },
+    "gat2": {
+      "ent_full": 0.49964816123247147,
+      "ent_dist": 0.49732986092567444,
+      "ent_feat": 0.9973848909139633,
+      "std_feat": 0.06558782700449228,
+      "tv": 0.011328596388921142,
+      "argmax_shift": 0.00146484375,
+      "std_dist": 3.175660341978073,
+      "std_ratio_feat_over_dist": 0.020653287802069716
+    }
+  },
+  "Delhi->Guwahati TL d=30": {
+    "checkpoint": "models\\gnn_tl\\gat_tl_Delhi_to_Guwahati_d30_fixed.pt",
+    "N": 4,
+    "graph_instances": 512,
+    "logw_min": -9.069084167480469,
+    "logw_max": -0.28473037481307983,
+    "gat1": {
+      "ent_full": 0.49644121527671814,
+      "ent_dist": 0.49732986092567444,
+      "ent_feat": 0.9992611408233643,
+      "std_feat": 0.03292058687657118,
+      "tv": 0.005253254959825426,
+      "argmax_shift": 0.00439453125,
+      "std_dist": 3.175660341978073,
+      "std_ratio_feat_over_dist": 0.010366532730658915
+    },
+    "gat2": {
+      "ent_full": 0.4976420924067497,
+      "ent_dist": 0.49732986092567444,
+      "ent_feat": 0.9994109570980072,
+      "std_feat": 0.034327722154557705,
+      "tv": 0.005357332120183855,
+      "argmax_shift": 0.0,
+      "std_dist": 3.175660341978073,
+      "std_ratio_feat_over_dist": 0.010809632787483646
+    }
+  },
+  "Delhi->Kolkata TL d=30": {
+    "checkpoint": "models\\gnn_tl\\gat_tl_Delhi_to_Kolkata_d30_fixed.pt",
+    "N": 10,
+    "graph_instances": 512,
+    "logw_min": -1.3219190835952759,
+    "logw_max": -0.026297368109226227,
+    "gat1": {
+      "ent_full": 0.9766279856363932,
+      "ent_dist": 0.9769872228304545,
+      "ent_feat": 0.9995143016179403,
+      "std_feat": 0.02882478106766939,
+      "tv": 0.010953677973399559,
+      "argmax_shift": 0.0888671875,
+      "std_dist": 0.30346953123807907,
+      "std_ratio_feat_over_dist": 0.09498410252281855
+    },
+    "gat2": {
+      "ent_full": 0.9681209723154703,
+      "ent_dist": 0.9769872228304545,
+      "ent_feat": 0.9944640894730886,
+      "std_feat": 0.11854295432567596,
+      "tv": 0.0442790649831295,
+      "argmax_shift": 0.2679036458333333,
+      "std_dist": 0.30346953123807907,
+      "std_ratio_feat_over_dist": 0.39062555585745506
+    }
+  }
+}

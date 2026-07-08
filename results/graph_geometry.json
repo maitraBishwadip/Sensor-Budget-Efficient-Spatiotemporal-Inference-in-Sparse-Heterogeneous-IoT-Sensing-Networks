@@ -1,0 +1,41 @@
+{
+  "Delhi": {
+    "N": 40,
+    "k": 3,
+    "n_edges": 120,
+    "knn_dist_mean_km": 4.3827999462684,
+    "knn_dist_median_km": 3.4759931564331055,
+    "knn_dist_max_km": 18.588638305664062,
+    "knn_dist_min_km": 0.9753420352935791,
+    "nn1_dist_mean_km": 3.2976408541202544,
+    "edge_weight_mean": 0.6877701339638034,
+    "edge_weight_min": 0.0009970102759588866,
+    "edge_weight_max": 0.9811540072117836
+  },
+  "Kolkata": {
+    "N": 10,
+    "k": 3,
+    "n_edges": 30,
+    "knn_dist_mean_km": 4.0745201587677,
+    "knn_dist_median_km": 3.881845474243164,
+    "knn_dist_max_km": 8.129941940307617,
+    "knn_dist_min_km": 1.146677017211914,
+    "nn1_dist_mean_km": 2.6978309869766237,
+    "edge_weight_mean": 0.7049423601762796,
+    "edge_weight_min": 0.26662312913497765,
+    "edge_weight_max": 0.9740454008573666
+  },
+  "Guwahati": {
+    "N": 4,
+    "k": 3,
+    "n_edges": 12,
+    "knn_dist_mean_km": 11.946606397628784,
+    "knn_dist_median_km": 11.647252082824707,
+    "knn_dist_max_km": 21.294464111328125,
+    "knn_dist_min_km": 3.773130416870117,
+    "nn1_dist_mean_km": 6.768166661262512,
+    "edge_weight_mean": 0.2631053936751355,
+    "edge_weight_min": 0.00011517198376397364,
+    "edge_weight_max": 0.7522171278579712
+  }
+}

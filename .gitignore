@@ -23,24 +23,25 @@ env/
 
 # Datasets are intentionally tracked (kept in the repo) — see "Data access" in README.
 
-# Trained model checkpoints
-models/*.pt
-models/*.pth
+# Trained model checkpoints are intentionally tracked (each is ~90 KB; see README) —
+# they are the reproducibility artifact, not a build byproduct.
 
 # Logs and run artifacts
 *.log
-reports/logs_*.txt
 runs/
 wandb/
+
+# Internal reports, audits, and reviewer correspondence — never public
+reports/
+paper/
+
+# Packaged release archives (e.g. Zenodo snapshots) — build artifacts, not source
+*.zip
 
 # Result JSONs (regenerable by re-running training)
 results/lstm/*.json
 results/gnn/*.json
 results/gnn_tl/*.json
-
-# Auto-generated diagnostic reports (regenerable by analysis/*.py)
-reports/diagnostic_report.md
-reports/diagnostic_report_v2.md
 
 # Jupyter
 .ipynb_checkpoints/
@@ -58,6 +59,3 @@ CLAUDE.md
 # Markdown — keep ONLY the root README.md; reports/notes stay out of the public repo
 *.md
 !/README.md
-
-# LaTeX manuscript sources are kept out of the public repo
-paper/

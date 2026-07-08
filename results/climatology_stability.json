@@ -1,0 +1,44 @@
+{
+  "Delhi": {
+    "N": 40,
+    "T": 5840,
+    "n_slots": 96,
+    "train_count_min": 40,
+    "train_count_mean": 43.4375,
+    "train_count_max": 46,
+    "n_empty_slots": 0,
+    "residual_std_ugm3": 59.37890220940947,
+    "splithalf_mad_ugm3": 8.712000007451454,
+    "splithalf_mad_over_resid_std": 0.14671877861141913,
+    "splithalf_p95_ugm3": 26.135096819163394,
+    "splithalf_corr": 0.9835972376767339
+  },
+  "Kolkata": {
+    "N": 10,
+    "T": 2920,
+    "n_slots": 96,
+    "train_count_min": 20,
+    "train_count_mean": 21.71875,
+    "train_count_max": 23,
+    "n_empty_slots": 0,
+    "residual_std_ugm3": 22.37697227438359,
+    "splithalf_mad_ugm3": 4.133515979376613,
+    "splithalf_mad_over_resid_std": 0.1847218617734323,
+    "splithalf_p95_ugm3": 12.438321966474698,
+    "splithalf_corr": 0.9812359208866901
+  },
+  "Guwahati": {
+    "N": 4,
+    "T": 2920,
+    "n_slots": 96,
+    "train_count_min": 20,
+    "train_count_mean": 21.71875,
+    "train_count_max": 23,
+    "n_empty_slots": 0,
+    "residual_std_ugm3": 30.318908832436616,
+    "splithalf_mad_ugm3": 6.598584941558929,
+    "splithalf_mad_over_resid_std": 0.21763926195455452,
+    "splithalf_p95_ugm3": 20.924582842913505,
+    "splithalf_corr": 0.9736576511980181
+  }
+}
